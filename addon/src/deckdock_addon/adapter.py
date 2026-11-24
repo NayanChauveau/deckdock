@@ -830,7 +830,7 @@ def _prepare(
 
 
 def preview_plan(col: Collection, deck: CompiledDeck, sub: Subscription) -> Plan:
-    """The plan `update_subscription` starts from for `deck`; writes nothing."""
+    """The plan `apply_download` starts from for `deck`; writes nothing."""
     prepared, exclude = _prepare(col, deck, sub)
     return _plan(col, prepared, sub, exclude)[1]
 
