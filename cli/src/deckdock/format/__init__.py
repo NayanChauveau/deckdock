@@ -1,4 +1,4 @@
-"""The compiled deckdock/1 format: constants and the checker (standard library only)."""
+"""The compiled deckdock/1 format: constants, typed shapes and the checker (standard library only)."""
 
 from deckdock.format.check import (
     FORMAT,
@@ -10,6 +10,15 @@ from deckdock.format.check import (
     check_deck,
     check_dist,
 )
+from deckdock.format.types import (
+    CompiledDeck,
+    Deck,
+    DeckOptions,
+    MediaEntry,
+    Note,
+    Notetype,
+    Template,
+)
 
 __all__ = [
     "FORMAT",
@@ -18,6 +27,13 @@ __all__ = [
     "MAX_NOTES",
     "MAX_TOTAL_MEDIA_BYTES",
     "SLUG_RE",
+    "CompiledDeck",
+    "Deck",
+    "DeckOptions",
+    "MediaEntry",
+    "Note",
+    "Notetype",
+    "Template",
     "check_deck",
     "check_dist",
 ]

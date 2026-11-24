@@ -128,6 +128,25 @@ The JSON Schema encodes the **structural** rules only (it always forbids unknown
 
 `deckdock check [DIST]` (default `dist`) checks every `<DIST>/<edition>/deck.json`, prints one error per line as `<path>: <JSON path>: <message>` (for example `dist/fr/deck.json: notes[3].fields: missing field 'Back'`) and exits with 1 if there is any error, 0 otherwise.
 
+## Producing a deck from Python
+
+A custom generator does not have to use the YAML sources. The `deckdock.format` module
+(standard library only) provides `TypedDict` models of this format (`CompiledDeck`, `Deck`,
+`DeckOptions`, `Notetype`, `Template`, `Note`, `MediaEntry`) and the reference checker:
+
+```python
+import json
+from deckdock.format import CompiledDeck, check_deck, check_dist
+
+deck: CompiledDeck = {...}  # built with these models
+assert check_deck(deck) == []
+# write dist/<edition>/deck.json (UTF-8, ensure_ascii=False) and dist/<edition>/media/,
+# then run check_dist(Path("dist")) or `deckdock check dist`.
+```
+
+The models describe the structure only; the rules above (slugs, uniqueness, limits, media)
+are enforced by `check_deck` and `check_dist`.
+
 ## Compatibility
 
 `format` carries the major version. Adding an optional key stays in `deckdock/1`; a breaking change becomes `deckdock/2`. Consumers must reject a `format` they do not know.

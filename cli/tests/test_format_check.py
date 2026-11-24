@@ -8,8 +8,8 @@ from typing import cast
 import pytest
 
 from deckdock.cli import main
+from deckdock.format import FORMAT, CompiledDeck, check_deck, check_dist
 from deckdock.format import check as check_module
-from deckdock.format import check_deck, check_dist
 
 Deck = dict[str, object]
 
@@ -463,3 +463,40 @@ def test_anki_id_upper_bound_rejected():
         f"deck.anki_id: must be <= {2**63 - 1}",
         f"notetypes[0].anki_id: must be <= {2**63 - 1}",
     ]
+
+
+def test_typed_compiled_deck_passes_check():
+    deck: CompiledDeck = {
+        "format": FORMAT,
+        "deck": {
+            "id": "typed",
+            "edition": "en",
+            "name": "Typed",
+            "language": ["en"],
+            "version": "dev",
+            "options": {"new_per_day": 10},
+        },
+        "notetypes": [
+            {
+                "id": "basic",
+                "name": "Basic",
+                "kind": "standard",
+                "fields": ["Front", "Back"],
+                "templates": [
+                    {"name": "Card 1", "front": "{{Front}}", "back": "{{Back}}"}
+                ],
+                "css": "",
+            }
+        ],
+        "notes": [
+            {
+                "guid": "g1",
+                "notetype": "basic",
+                "deck": "",
+                "fields": {"Front": "a", "Back": "b"},
+                "tags": [],
+            }
+        ],
+        "media": [],
+    }
+    assert check_deck(deck) == []

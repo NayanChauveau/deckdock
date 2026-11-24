@@ -1,7 +1,9 @@
 """The four built-in DeckDock notetypes, read from package-data template files."""
 
 from importlib.resources import files
-from typing import TypedDict
+from typing import Literal, TypedDict
+
+from deckdock.format import Notetype, Template
 
 LABELS: dict[str, dict[str, str]] = {
     "en": {"explanation": "Explanation"},
@@ -11,7 +13,7 @@ LABELS: dict[str, dict[str, str]] = {
 
 class _Spec(TypedDict):
     name: str
-    kind: str
+    kind: Literal["standard", "cloze"]
     fields: list[str]
     templates: list[tuple[str, str]]  # (front file, back file), without ".html"
 
@@ -57,11 +59,11 @@ def _render(name: str, labels: dict[str, str]) -> str:
     return text.replace("__LABEL_EXPLANATION__", labels["explanation"])
 
 
-def notetype_for(card_type: str, edition: str) -> dict[str, object]:
+def notetype_for(card_type: str, edition: str) -> Notetype:
     """Return the compiled notetype for a card type, with labels localised for `edition`."""
     spec = _SPECS[card_type]
     labels = LABELS.get(edition, LABELS["en"])
-    templates = [
+    templates: list[Template] = [
         {
             "name": f"Card {index}",
             "front": _render(f"{front}.html", labels),

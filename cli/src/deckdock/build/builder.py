@@ -10,7 +10,15 @@ from deckdock import __version__
 from deckdock.build.markdown import render
 from deckdock.build.media import media_problem
 from deckdock.build.notetypes import notetype_for
-from deckdock.format import FORMAT, check_dist
+from deckdock.format import (
+    FORMAT,
+    CompiledDeck,
+    Deck,
+    MediaEntry,
+    Note,
+    Notetype,
+    check_dist,
+)
 from deckdock.guid import card_guid
 from deckdock.issues import Issue
 from deckdock.source.load import CONFIG_FILE, load_project
@@ -22,8 +30,6 @@ from deckdock.source.models import (
 )
 from deckdock.source.validate import validate_project
 
-JsonObject = dict[str, object]
-
 
 def _localized(value: str | dict[str, str] | None, edition: str) -> str | None:
     if isinstance(value, dict):
@@ -31,22 +37,31 @@ def _localized(value: str | dict[str, str] | None, edition: str) -> str | None:
     return value
 
 
-def _deck_object(project: Project, edition: str, version: str) -> JsonObject:
+def _deck_object(project: Project, edition: str, version: str) -> Deck:
+    """The `deck` object, keys in the order of the specification's table."""
     config = project.config
-    deck: JsonObject = {"id": config.id, "edition": edition}
-    deck["name"] = _localized(config.name, edition) or ""
+    deck: Deck = {
+        "id": config.id,
+        "edition": edition,
+        "name": _localized(config.name, edition) or "",
+        "language": [edition],
+        "version": version,
+    }
     description = _localized(config.description, edition)
     if description is not None:
         deck["description"] = description
-    deck["language"] = [edition]
-    if config.license is not None:
-        deck["license"] = config.license
     if config.homepage is not None:
         deck["homepage"] = config.homepage
-    if config.options is not None:
-        deck["options"] = config.options.model_dump(exclude_none=True)
-    deck["version"] = version
+    if config.license is not None:
+        deck["license"] = config.license
     deck["generator"] = f"deckdock {__version__}"
+    if config.options is not None:
+        options = config.options
+        deck["options"] = {}
+        if options.new_per_day is not None:
+            deck["options"]["new_per_day"] = options.new_per_day
+        if options.reviews_per_day is not None:
+            deck["options"]["reviews_per_day"] = options.reviews_per_day
     return deck
 
 
@@ -62,7 +77,7 @@ def _choices_html(content: McqContent, media: set[str]) -> str:
 
 def _fields(
     content: BasicContent | ClozeContent | McqContent, media: set[str]
-) -> JsonObject:
+) -> dict[str, str]:
     def md(text: str) -> str:
         out, found = render(text)
         media.update(found)
@@ -81,10 +96,10 @@ def _fields(
 
 def compile_edition(
     project: Project, edition: str, version: str
-) -> tuple[JsonObject, set[str]]:
+) -> tuple[CompiledDeck, set[str]]:
     """Compile one edition; return the deck and the root-relative media paths it references."""
-    notetypes: dict[str, JsonObject] = {}
-    notes: list[JsonObject] = []
+    notetypes: dict[str, Notetype] = {}
+    notes: list[Note] = []
     media: set[str] = set()
     for loaded in project.cards:
         card = loaded.card
@@ -102,7 +117,7 @@ def compile_edition(
                 "tags": list(card.tags),
             }
         )
-    deck: JsonObject = {
+    deck: CompiledDeck = {
         "format": FORMAT,
         "deck": _deck_object(project, edition, version),
         "notetypes": list(notetypes.values()),
@@ -152,7 +167,7 @@ def _clear(out: Path) -> None:
     out.mkdir(parents=True)
 
 
-def _write_json(path: Path, data: JsonObject) -> None:
+def _write_json(path: Path, data: CompiledDeck) -> None:
     text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
     _ = path.write_bytes(text.encode("utf-8"))
 
@@ -175,7 +190,7 @@ def build(root: Path, out: Path, version: str) -> list[Issue]:
     if not clearable:
         return [Issue(str(out), "refusing to overwrite non-deckdock directory")]
 
-    compiled: dict[str, tuple[JsonObject, dict[str, str]]] = {}
+    compiled: dict[str, tuple[CompiledDeck, dict[str, str]]] = {}
     guarded: set[str] = set()
     for edition in project.config.editions:
         deck, paths = compile_edition(project, edition, version)
@@ -209,12 +224,12 @@ def _os_error(exc: OSError) -> str:
 
 
 def _write_editions(
-    root: Path, out: Path, compiled: dict[str, tuple[JsonObject, dict[str, str]]]
+    root: Path, out: Path, compiled: dict[str, tuple[CompiledDeck, dict[str, str]]]
 ) -> None:
     for edition, (deck, plan) in compiled.items():
         media_dir = out / edition / "media"
         (out / edition).mkdir(parents=True, exist_ok=True)
-        entries: list[object] = []
+        entries: list[MediaEntry] = []
         for name in sorted(plan):
             source = root / plan[name]
             media_dir.mkdir(exist_ok=True)
