@@ -1,6 +1,7 @@
 import ast
 import json
 import pathlib
+import sys
 from typing import Any, cast
 
 import jsonschema
@@ -55,17 +56,30 @@ def test_schema_rejects_structural_invalid_examples():
                 jsonschema.validate(load(p), SCHEMA)
 
 
+def _imported_modules(file: pathlib.Path) -> set[str]:
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(file.read_text())):
+        if isinstance(node, ast.Import):
+            names.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module.split(".")[0])
+    return names
+
+
 def test_format_module_is_stdlib_only():
     files = [*sorted((SRC / "format").glob("*.py")), SRC / "guid.py", SRC / "issues.py"]
     covered = {f.relative_to(SRC).as_posix() for f in files}
     assert {"format/check.py", "format/types.py", "guid.py", "issues.py"} <= covered
-    banned = ("pydantic", "yaml", "markdown_it")
+    allowed = set(sys.stdlib_module_names) | {"deckdock"}
     for file in files:
-        for node in ast.walk(ast.parse(file.read_text())):
-            names: list[str] = []
-            if isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                names = [node.module]
-            for name in names:
-                assert not name.startswith(banned), f"{file.name} imports {name}"
+        extra = _imported_modules(file) - allowed
+        assert not extra, f"{file.name} imports {sorted(extra)}"
+
+
+def test_package_has_no_third_party_imports():
+    files = sorted(SRC.rglob("*.py"))
+    assert len(files) >= 7
+    allowed = set(sys.stdlib_module_names) | {"deckdock"}
+    for file in files:
+        extra = _imported_modules(file) - allowed
+        assert not extra, f"{file.relative_to(SRC)} imports {sorted(extra)}"
