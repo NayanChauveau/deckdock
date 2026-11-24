@@ -254,6 +254,35 @@ def test_received_path(tmp_path: Path) -> None:
     assert path == tmp_path / "_deckdock_deck-1_fr.json"
 
 
+def test_received_path_is_portable(tmp_path: Path) -> None:
+    name = store.received_path(tmp_path, "My_Deck", 'fr:ca/x"?é').name
+    assert name == "_deckdock_%4Dy%5F%44eck_fr%3Aca%2Fx%22%3F%C3%A9.json"
+    assert not set(name) & set('<>:"/\\|?* ')
+    # Case-insensitive file systems: names differing only by case stay distinct.
+    upper = store.received_path(tmp_path, "Deck", "fr").name
+    lower = store.received_path(tmp_path, "deck", "fr").name
+    assert upper.lower() != lower.lower()
+    # "_" in a part cannot be confused with the separator.
+    assert (
+        store.received_path(tmp_path, "a_b", "c").name
+        != store.received_path(tmp_path, "a", "b_c").name
+    )
+
+
+def test_received_path_stays_under_120_bytes(tmp_path: Path) -> None:
+    long_id = "d" * 300
+    path = store.received_path(tmp_path, long_id, "fr")
+    assert len(path.name.encode("utf-8")) <= 120
+    assert path.name.startswith("_deckdock_") and path.name.endswith(".json")
+    assert path == store.received_path(tmp_path, long_id, "fr")
+    assert path != store.received_path(tmp_path, long_id, "en")
+    emoji = store.received_path(tmp_path, "é" * 40, "fr")
+    assert len(emoji.name.encode("utf-8")) <= 120
+    # The long name still round-trips through the file.
+    assert store.write_received(path, long_id, "fr", "v1", R1, subscription="s1")
+    assert store.read_received(path, "v1", "s1") == R1
+
+
 def test_received_round_trip_and_file_format(tmp_path: Path) -> None:
     path = store.received_path(tmp_path, "deck-1", "fr")
     assert store.write_received(path, "deck-1", "fr", "v1", R1, subscription="s1")
