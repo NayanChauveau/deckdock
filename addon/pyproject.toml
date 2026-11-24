@@ -1,0 +1,37 @@
+[project]
+name = "deckdock-addon"
+version = "0.1.0"
+description = "Anki add-on that installs and updates decks published in the deckdock/1 format"
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+    "basedpyright",
+    "anki==26.9.4",
+    "deckdock",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/deckdock_addon"]
+
+[tool.uv.sources]
+deckdock = { path = "../cli", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+extend-exclude = ["src/deckdock_addon/vendor"]
+
+[tool.basedpyright]
+include = ["src", "tests"]
+exclude = ["src/deckdock_addon/vendor"]

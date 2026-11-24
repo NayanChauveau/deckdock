@@ -1,0 +1,22 @@
+name: addon
+
+on:
+  push:
+    paths: [addon/**, cli/src/**, .github/workflows/addon.yml]
+  pull_request:
+    paths: [addon/**, cli/src/**, .github/workflows/addon.yml]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: addon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --locked
+      - run: uv run --locked ruff check .
+      - run: uv run --locked ruff format --check .
+      - run: uv run --locked basedpyright
+      - run: uv run --locked pytest -q
