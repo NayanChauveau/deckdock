@@ -22,6 +22,23 @@ dist/
 
 `deck.json` is UTF-8 JSON. Every `deck.json` is checked independently.
 
+## Publishing layout (optional)
+
+A deck can be served from any HTTPS base URL (`<base>`) so that clients can subscribe to it. For a GitHub repository, the template publishes the content of `dist/` at the root of the `dist` branch, so `<base>` is `https://raw.githubusercontent.com/<owner>/<repo>/dist`.
+
+```
+<base>/index.json
+<base>/<edition>/deck.json
+<base>/<edition>/media/<filename>
+```
+
+`index.json` lists the editions so a client can offer a choice without downloading every deck. It is UTF-8 JSON with these keys:
+
+- `format` (required): the string `deckdock-index/1`;
+- `editions` (required): an array, sorted by `edition`, of objects with `edition` (the edition code, string), `name` (string), `language` (array of strings) and `version` (string), copied from the `deck` object of `<edition>/deck.json`.
+
+Clients read media by filename, percent-encoded in the URL (a file named `a b.png` is fetched from `<base>/<edition>/media/a%20b.png`).
+
 ## Objects
 
 In **strict** mode (producers, `deckdock check`), unknown keys are rejected in every object, to catch typos; consumers validate in non-strict mode and ignore them (see [Compatibility](#compatibility)). "Required" means the key must be present.
