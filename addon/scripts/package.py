@@ -9,8 +9,8 @@ PACKAGE = ROOT / "src" / "deckdock_addon"
 EXCLUDED_DIRS = {"__pycache__", "tests", ".venv"}
 
 
-def _included(path: Path) -> bool:
-    rel = path.relative_to(PACKAGE)
+def _included(path: Path, package: Path) -> bool:
+    rel = path.relative_to(package)
     if any(part in EXCLUDED_DIRS for part in rel.parts[:-1]):
         return False
     name = rel.name
@@ -19,17 +19,19 @@ def _included(path: Path) -> bool:
     )
 
 
-def build(dist: Path = ROOT / "dist") -> Path:
-    """Write the .ankiaddon zip (files at the archive root) and return its path."""
+def build(dist: Path = ROOT / "dist", package: Path = PACKAGE) -> Path:
+    """Write the .ankiaddon zip of `package` (files at the archive root); return its path."""
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     version = pyproject["project"]["version"]
     dist.mkdir(parents=True, exist_ok=True)
     out = dist / f"deckdock-{version}.ankiaddon"
     out.unlink(missing_ok=True)
-    files = sorted(p for p in PACKAGE.rglob("*") if p.is_file() and _included(p))
+    files = sorted(
+        p for p in package.rglob("*") if p.is_file() and _included(p, package)
+    )
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
         for path in files:
-            zf.write(path, path.relative_to(PACKAGE).as_posix())
+            zf.write(path, path.relative_to(package).as_posix())
     return out
 
 
