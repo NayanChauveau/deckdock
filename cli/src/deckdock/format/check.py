@@ -44,10 +44,10 @@ _MEDIA_KEYS = ("filename", "sha256", "size")
 
 # Media references: src="X", src='X', [sound:X], url(X) with optional quotes.
 _REFERENCE_PATTERNS = (
-    re.compile(r"""\bsrc\s*=\s*"([^"]*)\""""),
-    re.compile(r"""\bsrc\s*=\s*'([^']*)'"""),
+    re.compile(r"""\bsrc\s*=\s*"([^"]*)\"""", re.IGNORECASE),
+    re.compile(r"""\bsrc\s*=\s*'([^']*)'""", re.IGNORECASE),
     re.compile(r"\[sound:([^\]]*)\]"),
-    re.compile(r"""\burl\(\s*["']?([^"')]*?)["']?\s*\)"""),
+    re.compile(r"""\burl\(\s*["']?([^"')]*?)["']?\s*\)""", re.IGNORECASE),
 )
 
 
@@ -388,17 +388,17 @@ def check_deck(
 
 
 def _is_local_reference(name: str) -> bool:
-    """Whether `name` designates a bare media filename (not a URL, path or template tag)."""
+    """Whether `name` designates a file of the edition (not a URL, absolute path or template tag)."""
     return (
         bool(name)
         and "://" not in name
-        and "/" not in name
-        and not name.startswith("data:")
+        and not name.startswith(("/", "data:"))
         and "{{" not in name
     )
 
 
 def _references(text: str) -> list[str]:
+    """Local media references in `text`, HTML-unescaped and percent-decoded."""
     found: list[str] = []
     for pattern in _REFERENCE_PATTERNS:
         for name in cast(list[str], pattern.findall(text)):
@@ -500,7 +500,14 @@ def _check_edition(edition_dir: Path, display: str, *, strict: bool) -> list[Iss
 
     for where, text in _texts(deck):
         for name in _references(text):
-            if name not in listed:
+            if "/" in name:
+                issues.append(
+                    Issue(
+                        display,
+                        f"{where}: media references must be bare filenames ('{name}')",
+                    )
+                )
+            elif name not in listed:
                 issues.append(
                     Issue(display, f"{where}: references unlisted media '{name}'")
                 )

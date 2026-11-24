@@ -97,7 +97,8 @@ Field values are HTML: Markdown and other sources are already rendered at build 
 ## Media and references
 
 - Every file referenced from a field, a template or the CSS must be listed in `media`, and every listed file must exist in the edition's `media/` directory with the listed `size` and `sha256`. A file in `media/` that is not listed is an error.
-- Referenced names are found with these patterns: `src="X"`, `src='X'`, `[sound:X]` and `url(X)` (quotes optional). Each extracted name is HTML-unescaped (`&amp;` becomes `&`) and then percent-decoded (`%20` becomes a space) before it is compared with the listed filenames, so `src="a&amp;b.png"` and `src="a%20b.png"` refer to `a&b.png` and `a b.png`. A name is ignored when it contains `://` or `/`, starts with `data:`, or contains a `{{` template tag.
+- Referenced names are found with these patterns: `src="X"`, `src='X'`, `[sound:X]` and `url(X)` (quotes optional; `src` and `url` are matched case-insensitively). Each extracted name is HTML-unescaped (`&amp;` becomes `&`) and then percent-decoded (`%20` becomes a space) before it is compared with the listed filenames, so `src="a&amp;b.png"` and `src="a%20b.png"` refer to `a&b.png` and `a b.png`. A name is ignored when it contains `://`, starts with `/` (including protocol-relative `//`) or `data:`, or contains a `{{` template tag.
+- Anki's media folder is flat, so a reference must be a bare filename. Any other relative reference containing `/` (for example `src="media/hello.png"`) is an error: "media references must be bare filenames".
 - `sha256` is used for deduplication and verification.
 
 ## Limits (v1)
