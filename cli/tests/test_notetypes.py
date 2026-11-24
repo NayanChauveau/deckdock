@@ -4,7 +4,7 @@ from typing import cast
 import pytest
 
 from deckdock.build.notetypes import notetype_for
-from deckdock.format import check_deck
+from deckdock.format import Notetype, Template, check_deck
 
 TABLE = [
     ("basic", "DeckDock Basic", "standard", ["Front", "Back"], 1),
@@ -15,8 +15,8 @@ TABLE = [
 FIELD_REF = re.compile(r"\{\{\s*(?:[#^/]\s*)?(?:cloze:)?([^{}:]+?)\s*\}\}")
 
 
-def templates_of(notetype: dict[str, object]) -> list[dict[str, str]]:
-    return cast(list[dict[str, str]], notetype["templates"])
+def templates_of(notetype: Notetype) -> list[Template]:
+    return notetype["templates"]
 
 
 @pytest.mark.parametrize(("card_type", "name", "kind", "fields", "count"), TABLE)
@@ -36,7 +36,7 @@ def test_table_values(
 @pytest.mark.parametrize("card_type", [row[0] for row in TABLE])
 def test_templates_reference_only_declared_fields(card_type: str):
     notetype = notetype_for(card_type, "en")
-    declared = cast(list[str], notetype["fields"])
+    declared = notetype["fields"]
     for template in templates_of(notetype):
         for side in (template["front"], template["back"]):
             found = cast(list[str], FIELD_REF.findall(side))
@@ -70,7 +70,7 @@ def test_labels_localised():
 @pytest.mark.parametrize("card_type", [row[0] for row in TABLE])
 def test_output_passes_check_deck(card_type: str):
     notetype = notetype_for(card_type, "en")
-    fields = {name: "<p>x</p>" for name in cast(list[str], notetype["fields"])}
+    fields = {name: "<p>x</p>" for name in notetype["fields"]}
     data: dict[str, object] = {
         "format": "deckdock/1",
         "deck": {

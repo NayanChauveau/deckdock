@@ -229,11 +229,22 @@ def test_name_description_str_or_dict(make_project: MakeProject):
     project, _ = load_project(root)
     assert project is not None
     deck, _ = compile_edition(project, "en", "v")
-    meta = cast(dict[str, object], deck["deck"])
+    meta = deck["deck"]
     assert meta["name"] == "Name"
-    assert meta["description"] == "Same"
-    assert meta["options"] == {"new_per_day": 5}
+    assert meta.get("description") == "Same"
+    assert meta.get("options") == {"new_per_day": 5}
     assert "homepage" not in meta
+    assert list(meta) == [
+        "id",
+        "edition",
+        "name",
+        "language",
+        "version",
+        "description",
+        "license",
+        "generator",
+        "options",
+    ]
 
 
 def test_refuses_to_clear_foreign_directory(make_project: MakeProject, tmp_path: Path):

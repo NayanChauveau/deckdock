@@ -56,8 +56,9 @@ def test_schema_rejects_structural_invalid_examples():
 
 
 def test_format_module_is_stdlib_only():
-    files = [*sorted((SRC / "format").glob("*.py")), SRC / "guid.py"]
-    assert len(files) >= 3
+    files = [*sorted((SRC / "format").glob("*.py")), SRC / "guid.py", SRC / "issues.py"]
+    covered = {f.relative_to(SRC).as_posix() for f in files}
+    assert {"format/check.py", "format/types.py", "guid.py", "issues.py"} <= covered
     banned = ("pydantic", "yaml", "markdown_it")
     for file in files:
         for node in ast.walk(ast.parse(file.read_text())):
