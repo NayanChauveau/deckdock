@@ -1,3 +1,4 @@
+import unicodedata
 from dataclasses import replace
 
 from deckdock.format import CompiledDeck, MediaEntry, Note, Notetype
@@ -11,11 +12,12 @@ from deckdock_addon.engine import (
     Plan,
     Skipped,
     make_plan,
+    received_fingerprint,
     summary_lines,
     to_local_names,
     to_origin_names,
 )
-from deckdock_addon.store import MediaRecord, Received, Subscription, fingerprint
+from deckdock_addon.store import MediaRecord, Received, Subscription
 
 NT_ID = 100
 DELETED = "DeckDock::Deleted"
@@ -96,7 +98,7 @@ def make_sub(
 
 
 def rec(front: str = "q", back: str = "a", tags: tuple[str, ...] = ()) -> Received:
-    return Received(fingerprint({"Front": front, "Back": back}), tags)
+    return Received(received_fingerprint({"Front": front, "Back": back}), tags)
 
 
 def local_note(
@@ -198,7 +200,8 @@ def test_retire_missing_from_deck_adds_tag() -> None:
     a = only_action(plan)
     assert (a.kind, a.guid, a.note_id) == ("retire", "g1", 5)
     assert a.tags == (DELETED, "mine")
-    assert plan.new_received == {}
+    # Received entries of retired notes are kept (never recreate a deleted note).
+    assert plan.new_received == {"g1": rec(), "g2": rec(), "g3": rec()}
     assert plan.counts.retired == 1
     assert plan.skipped == ()
 
@@ -568,3 +571,189 @@ def test_media_names_html_escaped_round_trip() -> None:
     local = to_local_names(text, media)
     assert local == '<img src="a&amp;b-1.png"> [sound:a&b-1.png]'
     assert to_origin_names(local, media) == text
+
+
+# --- fix round 1 ---
+
+
+def _apply_note(plan: Plan, guid: str, media: dict[str, MediaRecord]) -> LocalNote:
+    """Simulate the adapter writing a create/update action: local media names."""
+    (a,) = [x for x in plan.note_actions if x.guid == guid]
+    assert a.fields is not None and a.tags is not None
+    fields = {k: to_local_names(v, media) for k, v in a.fields.items()}
+    return LocalNote(a.note_id or 9, guid, NT_ID, fields, a.tags)
+
+
+def test_media_content_change_updates_referencing_notes() -> None:
+    f = '<img src="h.png">'
+    deck = make_deck(
+        [note("g1", front=f), note("g2")],
+        media=[{"filename": "h.png", "sha256": "b" * 64, "size": 1}],
+    )
+    old = {"h.png": MediaRecord("a" * 64, "h-aaa.png")}
+    plan = make_plan(
+        deck,
+        make_sub({"g1": rec(front=f), "g2": rec()}, media=old),
+        local_state(
+            [local_note("g1", front='<img src="h-aaa.png">'), local_note("g2")]
+        ),
+    )
+    a = only_action(plan)
+    assert (a.kind, a.guid) == ("update", "g1")
+    assert a.fields == {"Front": f, "Back": "a"}
+    assert plan.skipped == ()
+
+
+def test_media_content_change_updates_referencing_notetype() -> None:
+    nt = notetype()
+    nt["css"] = ".card { background: url(bg.png); }"
+    old = {"bg.png": MediaRecord("a" * 64, "bg.png")}
+    local_nt = LocalNotetype(
+        NT_ID,
+        ("Front", "Back"),
+        1,
+        False,
+        templates=(("Card 1", "{{Front}}", "{{Back}}"),),
+        css=".card { background: url(bg.png); }",
+    )
+    media: list[MediaEntry] = [{"filename": "bg.png", "sha256": "b" * 64, "size": 1}]
+    plan = make_plan(
+        make_deck([], notetypes=[nt], media=media),
+        make_sub(media=old),
+        local_state(notetypes={NT_ID: local_nt}),
+    )
+    assert [a.change for a in plan.notetype_actions] == ["update"]
+
+    # After apply: new sha and local name recorded, CSS rewritten.
+    new = {"bg.png": MediaRecord("b" * 64, "bg-bbb.png")}
+    applied = replace(local_nt, css=to_local_names(nt["css"], new))
+    plan = make_plan(
+        make_deck([], notetypes=[nt], media=media),
+        make_sub(media=new),
+        local_state(notetypes={NT_ID: applied}),
+    )
+    assert [a.change for a in plan.notetype_actions] == ["unchanged"]
+
+
+def test_media_content_change_then_applied_is_idempotent() -> None:
+    f = '<img src="h.png">'
+    deck = make_deck(
+        [note("g1", front=f)],
+        media=[{"filename": "h.png", "sha256": "b" * 64, "size": 1}],
+    )
+    old = {"h.png": MediaRecord("a" * 64, "h.png")}
+    plan = make_plan(
+        deck,
+        make_sub({"g1": rec(front=f)}, media=old),
+        local_state([local_note("g1", front=f, note_id=1)]),
+    )
+    new = {"h.png": MediaRecord("b" * 64, "h-bbb.png")}
+    written = _apply_note(plan, "g1", new)
+    assert written.fields["Front"] == '<img src="h-bbb.png">'
+    nxt = make_plan(
+        deck, make_sub(plan.new_received, media=new), local_state([written])
+    )
+    assert nxt.note_actions == ()
+    assert nxt.skipped == ()
+    assert nxt.media_to_download == ()
+
+
+def test_local_reference_to_origin_name_of_renamed_media_is_modification() -> None:
+    # Table maps h.png -> h-ad78.png; the user pointed the note at the
+    # collection's own h.png: that is a local edit.
+    media = {"h.png": MediaRecord("a" * 64, "h-ad78.png")}
+    f = '<img src="h.png">'
+    plan = make_plan(
+        make_deck([note("g1", front=f, back="new")]),
+        make_sub({"g1": rec(front=f)}, media=media),
+        local_state([local_note("g1", front=f)]),
+    )
+    assert plan.note_actions == ()
+    assert only_skip(plan).reason == "modified_locally"
+
+
+def test_nfd_and_crlf_deck_text_not_seen_as_modified() -> None:
+    nfd = unicodedata.normalize("NFD", "café")
+    deck_front, deck_back = nfd + "\x01", "a\r\nb"
+    plan = make_plan(
+        make_deck([note("g1", front=deck_front, back=deck_back)]),
+        make_sub(),
+        local_state(),
+    )
+    # Anki stores the text normalized (NFC, no "\r", no control characters).
+    stored = local_note("g1", front="café", back="a\nb")
+    nxt = make_plan(
+        make_deck([note("g1", front=deck_front, back=deck_back)]),
+        make_sub(plan.new_received),
+        local_state([stored]),
+    )
+    assert nxt.note_actions == ()
+    assert nxt.skipped == ()
+
+
+def test_no_base_equal_after_normalization_records() -> None:
+    nfd = unicodedata.normalize("NFD", "été")
+    plan = make_plan(
+        make_deck([note("g1", front=nfd, back="x\r\ny\tz")]),
+        make_sub(),
+        local_state([local_note("g1", front="été", back="x\ny\tz", note_id=3)]),
+    )
+    assert [(a.kind, a.note_id) for a in plan.note_actions] == [("record", 3)]
+    assert plan.skipped == ()
+
+
+def test_retired_note_keeps_received_entry() -> None:
+    plan = make_plan(
+        make_deck([]),
+        make_sub({"g1": rec(), "g2": rec()}),
+        local_state([local_note("g1", note_id=5)]),
+    )
+    assert [(a.kind, a.guid) for a in plan.note_actions] == [("retire", "g1")]
+    assert plan.new_received == {"g1": rec(), "g2": rec()}
+
+    # Second run after tagging: idempotent.
+    tagged = local_note("g1", note_id=5, tags=(DELETED,))
+    again = make_plan(make_deck([]), make_sub(plan.new_received), local_state([tagged]))
+    assert again.note_actions == ()
+    assert again.new_received == plan.new_received
+
+
+def test_retired_then_republished_user_deleted_note_not_recreated() -> None:
+    retired = make_plan(make_deck([]), make_sub({"g1": rec()}), local_state())
+    plan = make_plan(
+        make_deck([note("g1")]), make_sub(retired.new_received), local_state()
+    )
+    assert plan.note_actions == ()
+    assert only_skip(plan).reason == "deleted_locally"
+
+    # Retired, kept by the user, then republished: the tag goes away.
+    tagged = local_note("g1", note_id=5, tags=(DELETED, "mine"))
+    plan = make_plan(
+        make_deck([note("g1")]), make_sub(retired.new_received), local_state([tagged])
+    )
+    a = only_action(plan)
+    assert (a.kind, a.tags) == ("update", ("mine",))
+
+
+def test_media_rewrite_round_trip_non_canonical_spellings() -> None:
+    cases = [
+        ('<img src="my%20file (1).png">', "my file (1).png", "my file (1)-33.png"),
+        ('<img src="caf&eacute;.png">', "café.png", "café-1.png"),
+        ("[sound:caf%C3%A9.mp3]", "café.mp3", "café-2.mp3"),
+    ]
+    for text, origin, local_name in cases:
+        media = {origin: MediaRecord("a" * 64, local_name)}
+        written = to_local_names(text, media)
+        assert written != text
+        assert to_origin_names(written, media) == text, (text, written)
+
+        # A note written with that text is not seen as modified afterwards.
+        plan = make_plan(make_deck([note("g1", front=text)]), make_sub(), local_state())
+        local = _apply_note(plan, "g1", media)
+        nxt = make_plan(
+            make_deck([note("g1", front=text)]),
+            make_sub(plan.new_received, media=media),
+            local_state([local]),
+        )
+        assert nxt.note_actions == ()
+        assert nxt.skipped == ()
