@@ -24,7 +24,12 @@ SOURCE_CODES = (
     "sha_mismatch",
     "cancelled",
 )
-ADAPTER_CODES = ("deck_name_conflict", "collection_changed", "partial_apply")
+ADAPTER_CODES = (
+    "deck_name_conflict",
+    "collection_changed",
+    "partial_apply",
+    "received_write_failed",
+)
 
 
 def _set_language(monkeypatch: pytest.MonkeyPatch, code: str) -> None:
