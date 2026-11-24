@@ -212,23 +212,60 @@ def _compatible(nt_dict: NotetypeDict, nt: Notetype) -> bool:
     )
 
 
-def _find_by_name(col: Collection, deck: CompiledDeck, nt: Notetype) -> int | None:
-    """Id of a notetype named as DeckDock names this one, with the same structure."""
-    found = col.models.by_name(notetype_name(deck, nt))
-    if found is None or not _compatible(found, nt):
-        return None
-    return cast(int, found["id"])
+MARKER_KEY = "deckdock"
+
+
+def notetype_marker(deck: CompiledDeck, slug: str) -> dict[str, str]:
+    """Identity stamped into every notetype DeckDock creates (key `deckdock`).
+
+    Anki keeps unknown top-level notetype keys through add, update, sync and
+    reopening (verified on 26.9.4), so a notetype is recognized by the deck,
+    edition and slug that created it, never by its name.
+    """
+    info = deck["deck"]
+    return {"deck_id": info["id"], "edition": info["edition"], "slug": slug}
+
+
+def foreign_notetype_ids(catalog: Catalog, sub: Subscription) -> frozenset[int]:
+    """Notetype ids mapped by the other subscriptions of the catalog."""
+    return frozenset(
+        anki_id
+        for other in catalog.subscriptions
+        if other.id != sub.id
+        for anki_id in other.notetype_ids.values()
+    )
+
+
+def _find_by_marker(
+    col: Collection, deck: CompiledDeck, nt: Notetype, exclude: frozenset[int]
+) -> int | None:
+    """Id of a notetype created by DeckDock for this deck notetype, same structure."""
+    marker = notetype_marker(deck, nt["id"])
+    for entry in col.models.all_names_and_ids():
+        if entry.id in exclude:
+            continue
+        found = col.models.get(NotetypeId(entry.id))
+        if found is None or found.get(MARKER_KEY) != marker:
+            continue
+        if _compatible(found, nt):
+            return int(entry.id)
+    return None
 
 
 def adopt_notetypes(
-    col: Collection, deck: CompiledDeck, sub: Subscription
+    col: Collection,
+    deck: CompiledDeck,
+    sub: Subscription,
+    exclude: frozenset[int] | None = None,
 ) -> Subscription:
-    """Map deck notetypes that lost their mapping to an existing DeckDock notetype.
+    """Map deck notetypes that lost their mapping to the notetype DeckDock made.
 
     A notetype whose remembered id is missing, and whose deck `anki_id` is not in
-    the collection, is looked up by its exact DeckDock name and structure. This
-    recovers the notetypes created by an interrupted update, so a retry never
-    creates duplicates, and its notes are recognized as this deck's.
+    the collection, is looked up by its DeckDock marker (deck id, edition, slug)
+    and structure, skipping the ids in `exclude` (those of other
+    subscriptions). This recovers the notetypes created by an interrupted
+    update, so a retry never creates duplicates, and its notes are recognized
+    as this deck's. Notetypes of other decks or of the user are never taken.
     """
     ids = dict(sub.notetype_ids)
     for nt in deck["notetypes"]:
@@ -238,7 +275,7 @@ def adopt_notetypes(
         anki_id = nt.get("anki_id")
         if anki_id is not None and col.models.get(NotetypeId(anki_id)) is not None:
             continue
-        found = _find_by_name(col, deck, nt)
+        found = _find_by_marker(col, deck, nt, exclude or frozenset())
         if found is not None:
             ids[nt["id"]] = found
     return sub if ids == sub.notetype_ids else replace(sub, notetype_ids=ids)
@@ -364,6 +401,7 @@ class _Applier:
     def _new_notetype(self, nt: Notetype) -> NotetypeDict:
         mm = self.col.models
         nt_dict = mm.new(notetype_name(self.deck, nt))
+        nt_dict[MARKER_KEY] = notetype_marker(self.deck, nt["id"])
         if nt["kind"] == "cloze":
             nt_dict["type"] = _MODEL_CLOZE
         for name in nt["fields"]:
@@ -414,7 +452,8 @@ class _Applier:
         if action.change == "create":
             if action.slug in self.imposed:
                 return  # already created with its imposed id
-            found = _find_by_name(self.col, self.deck, nt)
+            exclude = foreign_notetype_ids(self.catalog, self.sub)
+            found = _find_by_marker(self.col, self.deck, nt, exclude)
             if found is not None:  # left by an interrupted attempt
                 self.ids[action.slug] = found
                 self._update_notetype(found, nt, ())
@@ -662,10 +701,31 @@ def _held(plan: Plan, confirmed_full_sync: bool) -> bool:
     )
 
 
+def _without_foreign_anki_ids(
+    deck: CompiledDeck, exclude: frozenset[int]
+) -> CompiledDeck:
+    """The deck without notetype `anki_id`s that another subscription already maps.
+
+    Such a notetype belongs to another deck: it is neither reused nor updated,
+    and this deck gets its own notetype instead.
+    """
+    if not any(nt.get("anki_id") in exclude for nt in deck["notetypes"]):
+        return deck
+    notetypes: list[Notetype] = []
+    for nt in deck["notetypes"]:
+        copy = nt.copy()
+        if copy.get("anki_id") in exclude:
+            del copy["anki_id"]
+        notetypes.append(copy)
+    out = deck.copy()
+    out["notetypes"] = notetypes
+    return out
+
+
 def _plan(
-    col: Collection, deck: CompiledDeck, sub: Subscription
+    col: Collection, deck: CompiledDeck, sub: Subscription, exclude: frozenset[int]
 ) -> tuple[Subscription, Plan]:
-    base = adopt_notetypes(col, deck, sub)
+    base = adopt_notetypes(col, deck, sub, exclude)
     return base, make_plan(deck, base, read_local_state(col, deck, base))
 
 
@@ -694,8 +754,10 @@ def update_subscription(
     fetched = fetch_deck(sub.base_url, etag=None, transport=transport)
     if fetched is None:
         raise SourceError("http_error", "unexpected 304 without ETag")
-    deck = fetched.deck
-    base, plan = _plan(col, deck, sub)
+    # Notetype ids of the other subscriptions are never reused nor adopted.
+    exclude = foreign_notetype_ids(read_catalog(col), sub)
+    deck = _without_foreign_anki_ids(fetched.deck, exclude)
+    base, plan = _plan(col, deck, sub, exclude)
     if _held(plan, confirmed_full_sync):
         return sub, plan
 
@@ -707,7 +769,7 @@ def update_subscription(
         ]
         media = write_media(col, downloads, sub.media)
         # The download may have taken minutes: plan again on the current state.
-        base, plan = _plan(col, deck, sub)
+        base, plan = _plan(col, deck, sub, exclude)
         if _held(plan, confirmed_full_sync):
             return sub, plan
     staged = replace(base, media=media, etag=fetched.etag)
