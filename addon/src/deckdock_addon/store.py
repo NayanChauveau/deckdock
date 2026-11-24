@@ -5,6 +5,11 @@ syncs through AnkiWeb). Only `read_catalog` / `write_catalog` touch the
 collection, through a duck-typed object; this module imports neither `anki` nor
 `aqt`.
 
+The check state (ETag, last check, last error, version seen on the server)
+changes at every check: it stays local to this computer, in
+`<profile>/deckdock/state.json`, so the synced catalog changes only when a
+subscription is added, removed or applied.
+
 The received fingerprints are too big for the collection config: they live in a
 `_deckdock_<deck_id>_<edition>.json` file of the media folder, which AnkiWeb
 media sync copies to the other computers and Anki's "Check Media" keeps (its
@@ -22,6 +27,7 @@ import json
 import os
 import tempfile
 from dataclasses import dataclass, field, fields
+from dataclasses import replace as _with
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol, cast
@@ -70,6 +76,10 @@ class Subscription:
     edition: str
     name: str
     installed_version: str | None = None
+    # The check state (`CHECK_FIELDS`) is local to this computer: it is kept in
+    # `<profile>/deckdock/state.json` (`read_check_state` / `write_check_state`),
+    # never in the synced collection config, so a routine check never rewrites
+    # the catalog that config sync merges as a whole.
     etag: str | None = None
     last_checked_at: str | None = None
     last_error: str | None = None
@@ -87,9 +97,24 @@ class Catalog:
     subscriptions: tuple[Subscription, ...] = ()
 
 
+@dataclass(frozen=True)
+class CheckState:
+    """What the last check of a subscription found, on this computer.
+
+    `available_version` is the version last seen on the server, which may be
+    the installed one.
+    """
+
+    etag: str | None = None
+    last_checked_at: str | None = None
+    last_error: str | None = None
+    available_version: str | None = None
+
+
 _REQUIRED = ("id", "source_url", "base_url", "deck_id", "edition", "name")
 _KNOWN = {f.name for f in fields(Subscription)}
-_NOT_IN_CONFIG = "received"
+CHECK_FIELDS = tuple(f.name for f in fields(CheckState))
+_NOT_IN_CONFIG = frozenset({"received", *CHECK_FIELDS})
 
 
 def dump_catalog(c: Catalog) -> dict[str, object]:
@@ -107,7 +132,7 @@ def _dump_subscription(s: Subscription) -> dict[str, object]:
                 k: {"sha256": m.sha256, "local_name": m.local_name}
                 for k, m in s.media.items()
             }
-        elif f.name == _NOT_IN_CONFIG:
+        elif f.name in _NOT_IN_CONFIG:
             continue
         elif f.name == "notetype_ids":
             out["notetype_ids"] = dict(s.notetype_ids)
@@ -145,7 +170,8 @@ def _seq(v: object, code: str) -> list[object]:
 
 def _load_subscription(item: object) -> Subscription:
     raw = _obj(item, "subscription")
-    _ = raw.pop(_NOT_IN_CONFIG, None)
+    for key in _NOT_IN_CONFIG:
+        _ = raw.pop(key, None)
     if set(raw) - _KNOWN or any(k not in raw for k in _REQUIRED):
         raise ValueError("subscription")
     req = [_req_str(raw[k]) for k in _REQUIRED]
@@ -160,10 +186,6 @@ def _load_subscription(item: object) -> Subscription:
         edition=req[4],
         name=req[5],
         installed_version=_opt_str(raw.get("installed_version")),
-        etag=_opt_str(raw.get("etag")),
-        last_checked_at=_opt_str(raw.get("last_checked_at")),
-        last_error=_opt_str(raw.get("last_error")),
-        available_version=_opt_str(raw.get("available_version")),
         root_deck_anki_id=root,
         notetype_ids=_load_notetype_ids(raw.get("notetype_ids", {})),
         media=_load_media(raw.get("media", {})),
@@ -218,6 +240,89 @@ def _dump_received(received: dict[str, Received]) -> dict[str, object]:
         k: {"fingerprint": r.fingerprint, "tags": list(r.tags)}
         for k, r in received.items()
     }
+
+
+def same_synced(a: Catalog, b: Catalog) -> bool:
+    """Whether two catalogs store the same collection config (check state aside)."""
+    return dump_catalog(a) == dump_catalog(b)
+
+
+# --- check state (local to this computer) ---
+
+CHECK_STATE_VERSION = 1
+
+
+def check_state_path(profile_dir: Path) -> Path:
+    return profile_dir / "deckdock" / "state.json"
+
+
+def check_state(s: Subscription) -> CheckState:
+    return CheckState(s.etag, s.last_checked_at, s.last_error, s.available_version)
+
+
+def with_check_state(c: Catalog, states: dict[str, CheckState]) -> Catalog:
+    """The catalog with each subscription's local check state (empty if unknown)."""
+    out: list[Subscription] = []
+    for s in c.subscriptions:
+        state = states.get(s.id, CheckState())
+        out.append(
+            _with(
+                s,
+                etag=state.etag,
+                last_checked_at=state.last_checked_at,
+                last_error=state.last_error,
+                available_version=state.available_version,
+            )
+        )
+    return Catalog(tuple(out))
+
+
+def _load_check_state(entry: object) -> CheckState:
+    values = _obj(entry, "state")
+    if set(values) - set(CHECK_FIELDS):
+        raise ValueError("state")
+    return CheckState(
+        etag=_opt_str(values.get("etag")),
+        last_checked_at=_opt_str(values.get("last_checked_at")),
+        last_error=_opt_str(values.get("last_error")),
+        available_version=_opt_str(values.get("available_version")),
+    )
+
+
+def read_check_state(path: Path) -> dict[str, CheckState]:
+    """The check state by subscription id; `{}` when the file is unusable.
+
+    An entry that is not valid is dropped: it is only a cache of the last check.
+    """
+    try:
+        raw = _obj(cast(object, json.loads(path.read_text(encoding="utf-8"))), "state")
+        if raw.get("version") != CHECK_STATE_VERSION:
+            return {}
+        subs = _obj(raw.get("subscriptions"), "state")
+    except (OSError, ValueError, RecursionError):
+        return {}
+    out: dict[str, CheckState] = {}
+    for sub_id, entry in subs.items():
+        try:
+            out[sub_id] = _load_check_state(entry)
+        except ValueError:
+            continue
+    return out
+
+
+def write_check_state(path: Path, c: Catalog) -> None:
+    """Write the check state of the catalog's subscriptions atomically."""
+    subs: dict[str, dict[str, str]] = {}
+    for s in c.subscriptions:
+        state = check_state(s)
+        pairs = (
+            ("etag", state.etag),
+            ("last_checked_at", state.last_checked_at),
+            ("last_error", state.last_error),
+            ("available_version", state.available_version),
+        )
+        subs[s.id] = {k: v for k, v in pairs if v is not None}
+    _atomic_write_json(path, {"version": CHECK_STATE_VERSION, "subscriptions": subs})
 
 
 def add(c: Catalog, s: Subscription) -> Catalog:

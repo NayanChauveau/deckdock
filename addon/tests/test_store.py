@@ -61,7 +61,18 @@ def test_round_trip_with_media_and_received() -> None:
     assert json.loads(json.dumps(payload)) == payload
     dumped = cast(list[dict[str, Any]], payload["subscriptions"])
     assert all("received" not in s for s in dumped)
-    stored = Catalog((replace(sub, received={}), make_sub(id="s2", edition="en")))
+    # The check state is local to this computer: never in the synced config.
+    for key in ("etag", "last_checked_at", "last_error", "available_version"):
+        assert all(key not in s for s in dumped)
+    synced = replace(
+        sub,
+        received={},
+        etag=None,
+        last_checked_at=None,
+        last_error=None,
+        available_version=None,
+    )
+    stored = Catalog((synced, make_sub(id="s2", edition="en")))
     assert store.load_catalog(payload) == stored
     col = FakeCol()
     store.write_catalog(col, catalog)
@@ -69,9 +80,79 @@ def test_round_trip_with_media_and_received() -> None:
     assert store.read_catalog(col) == stored
 
 
-def test_load_ignores_received_key() -> None:
+def test_load_ignores_received_key_and_check_state() -> None:
     payload = _wrap(received={"g": {"fingerprint": "a", "tags": []}})
     assert store.load_catalog(payload) == Catalog((make_sub(),))
+    payload = _wrap(
+        etag="e", last_checked_at="T", last_error="x", available_version="2"
+    )
+    assert store.load_catalog(payload) == Catalog((make_sub(),))
+
+
+def test_same_synced_ignores_the_check_state() -> None:
+    a = Catalog((make_sub(installed_version="v1"),))
+    checked = Catalog(
+        (
+            make_sub(
+                installed_version="v1",
+                etag="e",
+                last_checked_at="T",
+                last_error="http_error",
+                available_version="v2",
+            ),
+        )
+    )
+    assert store.same_synced(a, checked)
+    assert not store.same_synced(a, Catalog((make_sub(installed_version="v2"),)))
+    assert not store.same_synced(a, Catalog())
+
+
+def test_check_state_file_round_trip(tmp_path: Path) -> None:
+    path = store.check_state_path(tmp_path)
+    assert path == tmp_path / "deckdock" / "state.json"
+    assert store.read_check_state(path) == {}
+    one = make_sub(etag="e", last_checked_at="T", available_version="v2")
+    two = make_sub(id="s2", deck_id="deck-2", last_error="not_found")
+    store.write_check_state(path, Catalog((one, two)))
+    assert [p.name for p in path.parent.iterdir()] == ["state.json"]
+    states = store.read_check_state(path)
+    assert states == {
+        "s1": store.CheckState(etag="e", last_checked_at="T", available_version="v2"),
+        "s2": store.CheckState(last_error="not_found"),
+    }
+    # Merged into a catalog read from the config, which has no check state.
+    plain = Catalog(
+        (make_sub(installed_version="v1"), make_sub(id="s2", deck_id="deck-2"))
+    )
+    merged = store.with_check_state(plain, states)
+    assert merged.subscriptions[0] == replace(one, installed_version="v1")
+    assert merged.subscriptions[1] == two
+    # A removed subscription leaves the file; an unknown one gets an empty state.
+    store.write_check_state(path, Catalog((two,)))
+    assert set(store.read_check_state(path)) == {"s2"}
+    assert store.with_check_state(Catalog((make_sub(),)), {}) == Catalog((make_sub(),))
+
+
+def test_check_state_file_is_tolerant(tmp_path: Path) -> None:
+    path = store.check_state_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    for bad in ("{not json", "[1]", '{"version": 2, "subscriptions": {}}'):
+        _ = path.write_text(bad, encoding="utf-8")
+        assert store.read_check_state(path) == {}
+    _ = path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "subscriptions": {
+                    "ok": {"etag": "e"},
+                    "bad": {"etag": 3},
+                    "worse": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert store.read_check_state(path) == {"ok": store.CheckState(etag="e")}
 
 
 def test_catalog_with_5000_received_dumps_under_10kb() -> None:
