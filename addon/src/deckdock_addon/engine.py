@@ -359,13 +359,32 @@ def _first_field(fields: dict[str, str], order: Iterable[str] = ()) -> str:
     return next(iter(fields.values()), "")
 
 
+def _fold(tags: Iterable[str]) -> set[str]:
+    """Tags compared like Anki compares them: without case."""
+    return {t.casefold() for t in tags}
+
+
+def _has_tag(tags: Iterable[str], tag: str) -> bool:
+    return tag.casefold() in _fold(tags)
+
+
 def _merge_tags(
     local: Iterable[str], previous: Iterable[str], deck: Iterable[str]
 ) -> tuple[str, ...]:
-    """(local − previously received) ∪ deck tags, without the retirement tag."""
-    tags = (set(local) - set(previous)) | set(deck)
-    tags.discard(DELETED_TAG)
-    return tuple(sorted(tags))
+    """(local − previously received) ∪ deck tags, without the retirement tag.
+
+    Tags are compared without case, like Anki, which reuses the case of a tag
+    already in the collection; a tag the note already has keeps its case.
+    """
+    dropped = _fold(previous) | {DELETED_TAG.casefold()}
+    out: dict[str, str] = {}
+    for tag in local:
+        if tag.casefold() not in dropped:
+            _ = out.setdefault(tag.casefold(), tag)
+    for tag in deck:
+        if tag.casefold() != DELETED_TAG.casefold():
+            _ = out.setdefault(tag.casefold(), tag)
+    return tuple(sorted(out.values()))
 
 
 # --- notetypes ---
@@ -522,7 +541,9 @@ class _Builder:
             if not same_notetype or local_fp != prev.fingerprint:
                 self._skip(guid, "modified_locally", loc.fields, (), prev)
                 return
-            tags_changed = set(deck_tags) != set(prev.tags) or DELETED_TAG in loc.tags
+            tags_changed = _fold(deck_tags) != _fold(prev.tags) or _has_tag(
+                loc.tags, DELETED_TAG
+            )
             unchanged = new_rec.fingerprint == prev.fingerprint
             if unchanged and not tags_changed and not media_changed:
                 self.received[guid] = prev
@@ -538,7 +559,7 @@ class _Builder:
             self._skip(guid, "no_base_conflict", loc.fields, (), None)
             return
         tags = _merge_tags(loc.tags, (), deck_tags)
-        if media_changed or tags != tuple(sorted(set(loc.tags))):
+        if media_changed or _fold(tags) != _fold(loc.tags):
             self._update(n, loc, (), deck_tags)
         else:
             self.actions.append(
@@ -551,7 +572,7 @@ class _Builder:
         # the user deleted it, it must not be recreated.
         self.received[guid] = prev
         loc = self.local.notes_by_guid.get(guid)
-        if loc is None or DELETED_TAG in loc.tags:
+        if loc is None or _has_tag(loc.tags, DELETED_TAG):
             return
         tags = tuple(sorted({*loc.tags, DELETED_TAG}))
         self.actions.append(

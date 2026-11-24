@@ -801,3 +801,51 @@ def test_note_matching_neither_snapshot_is_modified_locally() -> None:
     assert plan.note_actions == ()
     assert only_skip(plan).reason == "modified_locally"
     assert plan.new_received == {"g1": rec(back="a")}
+
+
+# --- tag case (Anki reuses an existing tag's case; M-13) ---
+
+
+def test_tag_case_does_not_make_a_recorded_note_update_again() -> None:
+    plan = make_plan(
+        make_deck([note("g1", tags=("hello",))]),
+        make_sub(),
+        local_state([local_note("g1", tags=("Hello",), note_id=3)]),
+    )
+    assert only_action(plan).kind == "record"
+
+
+def test_tag_case_does_not_retire_a_note_again() -> None:
+    plan = make_plan(
+        make_deck([]),
+        make_sub({"g1": rec()}),
+        local_state([local_note("g1", tags=("deckdock::deleted",))]),
+    )
+    assert plan.note_actions == ()
+    assert plan.counts.retired == 0
+
+
+def test_tag_case_does_not_update_an_unchanged_note() -> None:
+    plan = make_plan(
+        make_deck([note("g1", tags=("hello",))]),
+        make_sub({"g1": rec(tags=("hello",))}),
+        local_state([local_note("g1", tags=("Hello",))]),
+    )
+    assert plan.note_actions == ()
+
+
+def test_tag_merge_compares_tags_without_case() -> None:
+    # The user's "Hello" is the previously received "hello": replaced.
+    plan = make_plan(
+        make_deck([note("g1", back="new", tags=("world",))]),
+        make_sub({"g1": rec(tags=("hello",))}),
+        local_state([local_note("g1", tags=("Hello", "Mine", "deckdock::deleted"))]),
+    )
+    assert only_action(plan).tags == ("Mine", "world")
+    # A deck tag the note already has in another case is kept once.
+    plan = make_plan(
+        make_deck([note("g1", back="new", tags=("mine",))]),
+        make_sub({"g1": rec()}),
+        local_state([local_note("g1", tags=("Mine",))]),
+    )
+    assert only_action(plan).tags == ("Mine",)
