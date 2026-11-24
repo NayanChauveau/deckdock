@@ -213,7 +213,7 @@ def test_external_and_data_urls_ignored(tmp_path: pathlib.Path):
     data = minimal()
     cast(dict[str, str], first_note(data)["fields"])["Front"] = (
         '<img src="https://example.com/a.png"><img src="data:image/png;base64,AAAA">'
-        '<img src="sub/a.png"><img src="{{Front}}">'
+        '<img src="{{Front}}">'
     )
     assert check_dist(write_dist(tmp_path, data)) == []
 
@@ -392,4 +392,56 @@ def test_check_dist_unreadable_media_dir(tmp_path: pathlib.Path):
         media.chmod(0o755)
     assert [i.message for i in issues] == [
         f"media: cannot read directory: {os.strerror(13)}"
+    ]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '<img src="media/hello.png">',
+        "<img src='media/hello.png'>",
+        "[sound:media/hello.png]",
+        "<style>.x{background:url(media/hello.png)}</style>",
+        '<IMG SRC="media/hello.png">',
+    ],
+)
+def test_nested_media_reference_is_an_error(tmp_path: pathlib.Path, text: str):
+    data = with_media(minimal(), "hello.png", b"x")
+    cast(dict[str, str], first_note(data)["fields"])["Front"] = text
+    issues = check_dist(write_dist(tmp_path, data, {"hello.png": b"x"}))
+    assert [i.message for i in issues] == [
+        "notes[0].fields.Front: media references must be bare filenames ('media/hello.png')"
+    ]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '<img src="https://example.com/a/b.png">',
+        '<img src="//cdn.example.com/a/b.png">',
+        '<img src="data:image/png;base64,AA/BB">',
+        '<img src="/abs/b.png">',
+        '<img src="{{Front}}/b.png">',
+    ],
+)
+def test_urls_and_absolute_paths_ignored(tmp_path: pathlib.Path, text: str):
+    data = minimal()
+    cast(dict[str, str], first_note(data)["fields"])["Front"] = text
+    assert check_dist(write_dist(tmp_path, data)) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '<IMG SRC="x.png">',
+        "<img Src='x.png'>",
+        "<style>.x{background:URL(x.png)}</style>",
+    ],
+)
+def test_reference_patterns_ignore_case(tmp_path: pathlib.Path, text: str):
+    data = minimal()
+    cast(dict[str, str], first_note(data)["fields"])["Front"] = text
+    issues = check_dist(write_dist(tmp_path, data))
+    assert [i.message for i in issues] == [
+        "notes[0].fields.Front: references unlisted media 'x.png'"
     ]
