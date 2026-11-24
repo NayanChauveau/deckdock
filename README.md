@@ -11,7 +11,8 @@ a verifier. It does not compile decks itself; to write one from YAML, start from
 - `spec/` - the `deckdock/1` format ([`deckdock-1.md`](spec/deckdock-1.md)), its JSON Schema
   and examples (MIT).
 - `action/` - a composite GitHub Action that runs `deckdock check` (MIT).
-- `hub/` and `addon/` - added later (AGPL-3.0-or-later).
+- `addon/` - the DeckDock Anki add-on, with an embedded copy of the library (AGPL-3.0-or-later).
+- `hub/` - added later (AGPL-3.0-or-later).
 
 ## Usage
 
