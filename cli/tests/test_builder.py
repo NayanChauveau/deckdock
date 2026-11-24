@@ -1,4 +1,5 @@
 import json
+import os
 from collections.abc import Callable
 from hashlib import sha256
 from pathlib import Path
@@ -336,3 +337,33 @@ def test_edition_code_cannot_escape_out(tmp_path: Path, absolute: bool):
     assert "invalid edition code" in issues[0].message
     assert not escaped.exists()
     assert sorted(p.name for p in tmp_path.iterdir()) == ["a"]
+
+
+def test_symlinked_dist_is_an_issue(
+    make_project: MakeProject, tmp_path_factory: pytest.TempPathFactory
+):
+    root = make_project({"cards/a.yaml": CARDS})
+    target = tmp_path_factory.mktemp("real-dist")
+    (root / "dist").symlink_to(target, target_is_directory=True)
+    issues = build(root, root / "dist", "v")
+    assert [str(i) for i in issues] == [
+        f"{root / 'dist'}: output directory is a symbolic link; refusing to clear it"
+    ]
+    assert (root / "dist").is_symlink()
+
+
+def test_copy_failure_is_an_issue(make_project: MakeProject, tmp_path: Path):
+    cards = "cards:\n  - id: a\n    type: basic\n    front: '![x](media/p.png)'\n    back: B\n"
+    root = make_project({"cards/a.yaml": cards, "media/p.png": b"x"})
+    source = root / "media" / "p.png"
+    source.chmod(0)
+    if os.access(source, os.R_OK):
+        source.chmod(0o644)
+        pytest.skip("permissions are not enforced")
+    try:
+        issues = build(root, tmp_path / "out", "v")
+    finally:
+        source.chmod(0o644)
+    assert len(issues) == 1
+    assert issues[0].path == str(tmp_path / "out")
+    assert issues[0].message.startswith("cannot write output:")

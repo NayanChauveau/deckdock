@@ -71,6 +71,12 @@ def main(argv: list[str] | None = None) -> int:
         except FileExistsError:
             print(f"{target}: target is not empty", file=sys.stderr)
             return 1
+        except OSError as exc:
+            print(
+                f"{target}: cannot create project: {exc.strerror or exc}",
+                file=sys.stderr,
+            )
+            return 1
         print(f"Created deck project in {target}")
         return 0
     if command == "check":

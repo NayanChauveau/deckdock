@@ -4,6 +4,7 @@ import hashlib
 import json
 import shutil
 from pathlib import Path
+from typing import cast
 
 from deckdock import __version__
 from deckdock.build.markdown import render
@@ -163,7 +164,15 @@ def build(root: Path, out: Path, version: str) -> list[Issue]:
         issues = validate_project(project)
     if project is None or issues:
         return issues
-    if not _is_clearable(out, root):
+    if out.is_symlink():
+        return [
+            Issue(str(out), "output directory is a symbolic link; refusing to clear it")
+        ]
+    try:
+        clearable = _is_clearable(out, root)
+    except OSError as exc:
+        return [Issue(str(out), f"cannot read output directory: {_os_error(exc)}")]
+    if not clearable:
         return [Issue(str(out), "refusing to overwrite non-deckdock directory")]
 
     compiled: dict[str, tuple[JsonObject, dict[str, str]]] = {}
@@ -184,7 +193,24 @@ def build(root: Path, out: Path, version: str) -> list[Issue]:
     if issues:
         return issues
 
-    _clear(out)
+    try:
+        _clear(out)
+        _write_editions(root, out, compiled)
+    except OSError as exc:
+        return [Issue(str(out), f"cannot write output: {_os_error(exc)}")]
+    return check_dist(out)
+
+
+def _os_error(exc: OSError) -> str:
+    filename = cast(object, exc.filename)
+    if exc.strerror and filename is not None:
+        return f"{exc.strerror}: '{filename}'"
+    return exc.strerror or str(exc)
+
+
+def _write_editions(
+    root: Path, out: Path, compiled: dict[str, tuple[JsonObject, dict[str, str]]]
+) -> None:
     for edition, (deck, plan) in compiled.items():
         media_dir = out / edition / "media"
         (out / edition).mkdir(parents=True, exist_ok=True)
@@ -202,4 +228,3 @@ def build(root: Path, out: Path, version: str) -> list[Issue]:
             )
         deck["media"] = entries
         _write_json(out / edition / "deck.json", deck)
-    return check_dist(out)

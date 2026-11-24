@@ -54,7 +54,8 @@ def _copy(source: Traversable, dest: Path, *, top_level: bool, deck_id: str) -> 
         data = entry.read_bytes()
         if top_level and entry.name == "deckdock.yaml":
             text = data.decode("utf-8")
-            assert _PLACEHOLDER_ID in text
+            if _PLACEHOLDER_ID not in text:
+                raise RuntimeError("scaffold deckdock.yaml lacks the id placeholder")
             data = text.replace(_PLACEHOLDER_ID, f"id: {deck_id}\n", 1).encode("utf-8")
         _ = path.write_bytes(data)
 

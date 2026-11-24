@@ -1,4 +1,5 @@
 import json
+import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -196,3 +197,18 @@ def test_edition_codes_must_be_slugs(make_project: MakeProject, code: str):
         f"deckdock.yaml: editions: Value error, invalid edition code {code!r} "
         + "(lowercase letters, digits and single dashes)"
     ]
+
+
+@pytest.mark.parametrize("locked", [".", "cards"])
+def test_unreadable_project_is_an_issue(make_project: MakeProject, locked: str):
+    root = make_project({"cards/a.yaml": TWO_CARDS})
+    target = root / locked
+    target.chmod(0)
+    try:
+        if os.access(target, os.R_OK):
+            pytest.skip("permissions are not enforced")
+        project, issues = load_project(root)
+    finally:
+        target.chmod(0o755)
+    assert project is None
+    assert "cards: cannot read directory: Permission denied" in [str(i) for i in issues]
