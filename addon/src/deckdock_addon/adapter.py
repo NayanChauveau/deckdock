@@ -160,6 +160,20 @@ def read_local_state(
     return LocalState(notes, notetypes, root_exists)
 
 
+def browser_search(col: Collection, guids: Sequence[str]) -> str | None:
+    """A Browser search for the notes with these GUIDs, or None when none exists.
+
+    Anki has no search on the GUID (`guid:` searches a field named "guid"), so
+    the GUIDs are resolved to note ids, one SQL query per chunk of 500.
+    """
+    ids: set[int] = set()
+    for chunk in _chunks(sorted(set(guids))):
+        marks = ",".join("?" * len(chunk))
+        sql = f"select id from notes where guid in ({marks})"
+        ids.update(cast(list[int], _db(col).list(sql, *chunk)))
+    return "nid:" + ",".join(str(i) for i in sorted(ids)) if ids else None
+
+
 # --- media -------------------------------------------------------------------------
 
 

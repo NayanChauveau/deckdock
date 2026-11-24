@@ -147,7 +147,7 @@ Les notes en conflit restent signalées à chaque mise à jour tant qu'elles dif
 
 Si l'utilisateur a modifié lui-même les templates d'un notetype géré par DeckDock, le MVP **écrase** les templates et le CSS. Le résumé le dit, et la protection des templates fera partie de la feuille de route.
 
-**Résumé affiché** : « *Nom du deck (fr)* — 3 nouvelles, 5 mises à jour, 1 retirée, 2 modifiées par toi (non mises à jour), notetypes : 1 mis à jour », suivi de la liste dépliable des notes modifiées localement (début du premier champ, avec un lien « Ouvrir dans le navigateur » qui recherche `guid:…`). Les boutons sont **Appliquer** et **Plus tard**.
+**Résumé affiché** : « *Nom du deck (fr)* — 3 nouvelles, 5 mises à jour, 1 retirée, 2 modifiées par toi (non mises à jour), notetypes : 1 mis à jour », suivi de la liste dépliable des notes modifiées localement (début du premier champ, avec un lien « Ouvrir dans le navigateur » ; Anki n'a pas de recherche sur le GUID, donc au clic le plugin retrouve les ids des notes par leur GUID et recherche `nid:…` ; les notes supprimées par l'utilisateur n'ont rien à montrer et sont ignorées). Les boutons sont **Appliquer** et **Plus tard**.
 
 ### 5.5 Appliquer (adaptateur Anki)
 
