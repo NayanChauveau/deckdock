@@ -280,6 +280,18 @@ def received_path(media_dir: Path, deck_id: str, edition: str) -> Path:
     return media_dir / f"_deckdock_{deck_id}_{edition}.json"
 
 
+def _load_first_install(raw: object) -> dict[str, str | None] | None:
+    if raw is None:
+        return None
+    top = _obj(raw, "received")
+    sub, base = top.get("subscription"), top.get("base")
+    if set(top) != {"subscription", "base"} or not isinstance(sub, str):
+        raise ValueError("received")
+    if base is not None and not isinstance(base, str):
+        raise ValueError("received")
+    return {"subscription": sub, "base": base}
+
+
 def _read_received_file(path: Path) -> dict[str, object] | None:
     """The validated content of a received file, or None.
 
@@ -298,30 +310,43 @@ def _read_received_file(path: Path) -> dict[str, object] | None:
             return None
         snapshots = _obj(top.get("snapshots"), "received")
         top["snapshots"] = {v: _load_received(r) for v, r in snapshots.items()}
+        top["first_install"] = _load_first_install(top.get("first_install"))
     except (OSError, ValueError, RecursionError):
         return None
     return top
 
 
 def read_received(
-    path: Path, installed_version: str | None
+    path: Path, installed_version: str | None, subscription_id: str
 ) -> dict[str, Received] | None:
     """The snapshot of `installed_version`, else the latest one.
 
-    A fresh subscription (`installed_version` None) has received nothing: `{}`.
-    Otherwise None means the file is unusable: missing, unreadable, malformed,
-    written for another deck or edition than its name says, or without the
-    installed snapshot nor a latest one. Never raises.
+    A subscription not installed yet (`installed_version` None) never gets None:
+    - with no usable file, it has received nothing: `{}`;
+    - when the file records that this subscription made the first install (an
+      undone install), the snapshot that install started from, else `{}`;
+    - otherwise (the same edition removed, then added again) the latest
+      snapshot, so notes the user deleted are not created again.
+
+    For an installed subscription, None means the file is unusable: missing,
+    unreadable, malformed, written for another deck or edition than its name
+    says, or without the installed snapshot nor a latest one. Never raises.
     """
-    if installed_version is None:
-        return {}
     top = _read_received_file(path)
     if top is None:
-        return None
+        return {} if installed_version is None else None
     snapshots = cast(dict[str, dict[str, Received]], top["snapshots"])
+    latest = top.get("latest")
+    if installed_version is None:
+        first = cast(dict[str, str | None] | None, top["first_install"])
+        if first is not None and first["subscription"] == subscription_id:
+            start = first["base"]
+            return snapshots[start] if start is not None and start in snapshots else {}
+        return (
+            snapshots[latest] if isinstance(latest, str) and latest in snapshots else {}
+        )
     if installed_version in snapshots:
         return snapshots[installed_version]
-    latest = top.get("latest")
     if isinstance(latest, str) and latest in snapshots:
         return snapshots[latest]
     return None
@@ -334,6 +359,7 @@ def write_received(
     version: str,
     received: dict[str, Received],
     *,
+    subscription: str,
     base: str | None = None,
 ) -> bool:
     """Write the snapshot of `version` atomically, unless the file already holds it.
@@ -341,24 +367,50 @@ def write_received(
     `base` is the version installed before this one. Its snapshot is kept next
     to `version` (at most two snapshots), so undoing the update finds its base
     again even after an earlier undo. When `base` is `version` itself, the other
-    snapshot is kept. Returns whether the file was written.
+    snapshot is kept.
+
+    `base` None is a first install by `subscription`. The file then records it
+    (`first_install`) with the latest snapshot the install started from (left
+    by a removed subscription of the same edition), and keeps that snapshot as
+    the base. Returns whether the file was written.
     """
     old: dict[str, dict[str, Received]] = {}
+    old_first: dict[str, str | None] | None = None
     top = _read_received_file(path)
     if top is not None and received_path(path.parent, deck_id, edition) == path:
         old = cast(dict[str, dict[str, Received]], top["snapshots"])
-    keep = base if base != version else next((v for v in old if v != version), None)
+        old_first = cast(dict[str, str | None] | None, top["first_install"])
+    first = old_first
+    keep_version = base
+    if base is None:
+        if old_first is None or old_first["subscription"] != subscription:
+            latest = top.get("latest") if top is not None else None
+            start = latest if isinstance(latest, str) and latest in old else None
+            first = {"subscription": subscription, "base": start}
+        keep_version = cast(dict[str, str | None], first)["base"]
+    keep = (
+        keep_version
+        if keep_version != version
+        else next((v for v in old if v != version), None)
+    )
     snapshots = {keep: old[keep]} if keep is not None and keep in old else {}
     snapshots[version] = received
-    if top is not None and top.get("latest") == version and old == snapshots:
+    if (
+        top is not None
+        and top.get("latest") == version
+        and old == snapshots
+        and old_first == first
+    ):
         return False
-    payload = {
+    payload: dict[str, object] = {
         "format": RECEIVED_FORMAT,
         "deck_id": deck_id,
         "edition": edition,
         "latest": version,
-        "snapshots": {v: _dump_received(r) for v, r in snapshots.items()},
     }
+    if first is not None:
+        payload["first_install"] = first
+    payload["snapshots"] = {v: _dump_received(r) for v, r in snapshots.items()}
     _atomic_write_json(path, payload, separators=(",", ":"))
     return True
 

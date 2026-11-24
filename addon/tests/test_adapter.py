@@ -36,12 +36,15 @@ from deckdock_addon.engine import (
 )
 from deckdock_addon.sources import SourceError, fetch_deck
 from deckdock_addon.store import (
+    Catalog,
     Subscription,
     full_versions_path,
     read_catalog,
     read_full_versions,
     read_received,
     received_path,
+    remove,
+    write_catalog,
 )
 from tests.conftest import (
     BASE_URL,
@@ -917,7 +920,7 @@ def test_received_kept_in_media_folder_not_in_config(
     path = received_file(col)
     assert path.parent == Path(col.media.dir())
     assert path.name == "_deckdock_hello-world_en.json"
-    assert read_received(path, "1") == new_sub.received
+    assert read_received(path, "1", sub.id) == new_sub.received
     assert len(new_sub.received) == 3
     (stored_sub,) = read_catalog(col).subscriptions
     assert stored_sub.received == {}
@@ -952,8 +955,8 @@ def test_undo_uses_the_previous_received_snapshot(
     (installed,) = read_catalog(col).subscriptions
     _, plan = run(col, server, installed, profile_dir)
     assert plan.counts.updated == 1
-    assert read_received(received_file(col), "2") != read_received(
-        received_file(col), "1"
+    assert read_received(received_file(col), "2", "sub-1") != read_received(
+        received_file(col), "1", "sub-1"
     )
 
     _ = col.undo()
@@ -1076,3 +1079,45 @@ def test_browser_search_finds_the_skipped_notes(
     assert found == {must_note(col, "hw-basic-1").id, must_note(col, "hw-cloze-1").id}
     assert adapter.browser_search(col, ["absent-guid"]) is None
     assert adapter.browser_search(col, []) is None
+
+
+def test_readding_the_same_edition_finds_its_base(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    _ = run(col, server, sub, profile_dir)
+    _ = col.remove_notes([must_note(col, "hw-cloze-1").id])
+    edited = must_note(col, "hw-reversed-1")
+    edited["Back"] = "my own translation"
+    _ = col.update_note(edited)
+    write_catalog(col, remove(read_catalog(col), sub.id))
+    again = replace(sub, id="sub-2")
+
+    preview = preview_plan(col, build_deck(), again)
+    _, plan = run(col, server, again, profile_dir)
+
+    assert preview == plan
+    assert note_by_guid(col, "hw-cloze-1") is None
+    assert must_note(col, "hw-reversed-1")["Back"] == "my own translation"
+    assert sorted((s.guid, s.reason) for s in plan.skipped) == [
+        ("hw-cloze-1", "deleted_locally"),
+        ("hw-reversed-1", "modified_locally"),
+    ]
+    assert plan.counts.created == 0
+    assert col.note_count() == 2
+
+
+def test_undoing_the_first_install_lets_it_be_installed_again(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    write_catalog(col, Catalog((sub,)))  # added before the install, like the UI
+    _ = run(col, server, sub, profile_dir)
+    _ = col.undo()
+    (current,) = read_catalog(col).subscriptions
+    assert current.installed_version is None
+    assert col.note_count() == 0
+
+    _, plan = run(col, server, current, profile_dir)
+
+    assert plan.counts.created == 3
+    assert plan.skipped == ()
+    assert col.note_count() == 3

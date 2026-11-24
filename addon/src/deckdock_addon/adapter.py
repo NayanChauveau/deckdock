@@ -708,7 +708,8 @@ def with_received(col: Collection, sub: Subscription) -> Subscription | None:
     None when `sub` is installed but its received file is missing or unusable
     on this computer (see `store.read_received`).
     """
-    received = read_received(_received_file(col, sub), sub.installed_version)
+    path = _received_file(col, sub)
+    received = read_received(path, sub.installed_version, sub.id)
     return None if received is None else replace(sub, received=received)
 
 
@@ -728,6 +729,7 @@ def _write_received(col: Collection, sub: Subscription, *, base: str | None) -> 
             sub.edition,
             sub.installed_version,
             sub.received,
+            subscription=sub.id,
             base=base,
         )
     except OSError as error:
