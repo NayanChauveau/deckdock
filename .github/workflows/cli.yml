@@ -28,8 +28,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - name: Build a valid dist from the minimal example
         run: |
-          mkdir -p /tmp/dist/en
-          cp spec/examples/valid/minimal.json /tmp/dist/en/deck.json
+          ed=$(jq -r .deck.edition spec/examples/valid/minimal.json)
+          mkdir -p "/tmp/dist/$ed"
+          cp spec/examples/valid/minimal.json "/tmp/dist/$ed/deck.json"
       - name: Check the valid dist with the local action
         uses: ./action
         with:
@@ -37,8 +38,9 @@ jobs:
           deckdock-ref: local
       - name: Build an invalid dist
         run: |
-          mkdir -p /tmp/bad/en
-          cp spec/examples/invalid/duplicate-guid.json /tmp/bad/en/deck.json
+          ed=$(jq -r .deck.edition spec/examples/invalid/duplicate-guid.json)
+          mkdir -p "/tmp/bad/$ed"
+          cp spec/examples/invalid/duplicate-guid.json "/tmp/bad/$ed/deck.json"
       - name: Check the invalid dist (must fail)
         id: must-fail
         continue-on-error: true
