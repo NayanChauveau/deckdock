@@ -1,6 +1,7 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownVariableType=false, reportUnknownMemberType=false
 """Read deckdock.yaml and cards/**/*.yaml, keeping line numbers for error messages."""
 
+import stat
 from pathlib import Path
 from typing import Any, cast
 
@@ -34,7 +35,11 @@ def _card_files(root: Path, issues: list[Issue]) -> list[str]:
     base = root / CARDS_DIR
     errors: list[OSError] = []
     try:
-        if not base.is_dir():
+        # Path.is_dir() hides permission errors on some platforms; stat() surfaces them.
+        try:
+            if not stat.S_ISDIR(base.stat().st_mode):
+                return []
+        except FileNotFoundError:
             return []
         found = [
             folder / name
