@@ -22,6 +22,7 @@ FORMAT = "deckdock/1"
 MAX_NOTES = 50_000
 MAX_MEDIA_BYTES = 10_485_760
 MAX_TOTAL_MEDIA_BYTES = 524_288_000
+MAX_ANKI_ID = 2**63 - 1  # Anki ids are signed 64-bit integers
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -119,7 +120,13 @@ class _Checker:
         return value
 
     def integer(
-        self, obj: dict[str, object], key: str, where: str, *, minimum: int
+        self,
+        obj: dict[str, object],
+        key: str,
+        where: str,
+        *,
+        minimum: int,
+        maximum: int | None = None,
     ) -> int | None:
         if key not in obj:
             return None
@@ -130,6 +137,9 @@ class _Checker:
         number = cast(int, value)
         if number < minimum:
             self.error(_join(where, key), f"must be >= {minimum}")
+            return None
+        if maximum is not None and number > maximum:
+            self.error(_join(where, key), f"must be <= {maximum}")
             return None
         return number
 
@@ -181,7 +191,7 @@ class _Checker:
             language = deck["language"]
             if not _is_str_list(language) or not language:
                 self.error("deck.language", "must be a non-empty list of strings")
-        _ = self.integer(deck, "anki_id", "deck", minimum=1)
+        _ = self.integer(deck, "anki_id", "deck", minimum=1, maximum=MAX_ANKI_ID)
         if "options" in deck:
             options = self.mapping(deck["options"], "deck.options")
             if options is not None:
@@ -211,7 +221,7 @@ class _Checker:
                 seen.add(notetype_id)
             _ = self.string(notetype, "name", where)
             _ = self.string(notetype, "css", where)
-            _ = self.integer(notetype, "anki_id", where, minimum=1)
+            _ = self.integer(notetype, "anki_id", where, minimum=1, maximum=MAX_ANKI_ID)
             kind = notetype.get("kind")
             if "kind" in notetype and kind not in ("standard", "cloze"):
                 self.error(f"{where}.kind", "must be 'standard' or 'cloze'")
