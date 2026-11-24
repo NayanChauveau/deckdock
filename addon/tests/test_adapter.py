@@ -868,3 +868,18 @@ def test_anki_id_mapped_by_other_subscription_not_reused(
     assert basic_a is not None
     assert basic_a["tmpls"][0]["qfmt"] == "{{Front}}"
     assert must_note(col, "other-1").mid == sub_b.notetype_ids["basic"]
+
+
+def test_preview_plan_matches_the_update_and_writes_nothing(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    fetched = fetch_deck(BASE_URL, etag=None, transport=server)
+    assert fetched is not None
+    before = col.note_count()
+
+    preview = adapter.preview_plan(col, fetched.deck, sub)
+
+    assert col.note_count() == before == 0
+    assert not col.undo_status().undo
+    _, applied = run(col, server, sub, profile_dir)
+    assert preview == applied

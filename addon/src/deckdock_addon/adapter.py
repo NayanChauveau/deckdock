@@ -729,6 +729,21 @@ def _plan(
     return base, make_plan(deck, base, read_local_state(col, deck, base))
 
 
+def _prepare(
+    col: Collection, deck: CompiledDeck, sub: Subscription
+) -> tuple[CompiledDeck, frozenset[int]]:
+    """The deck without notetype ids owned by other subscriptions, and those ids."""
+    # Notetype ids of the other subscriptions are never reused nor adopted.
+    exclude = foreign_notetype_ids(read_catalog(col), sub)
+    return _without_foreign_anki_ids(deck, exclude), exclude
+
+
+def preview_plan(col: Collection, deck: CompiledDeck, sub: Subscription) -> Plan:
+    """The plan `update_subscription` starts from for `deck`; writes nothing."""
+    prepared, exclude = _prepare(col, deck, sub)
+    return _plan(col, prepared, sub, exclude)[1]
+
+
 def update_subscription(
     col: Collection,
     sub: Subscription,
@@ -754,9 +769,7 @@ def update_subscription(
     fetched = fetch_deck(sub.base_url, etag=None, transport=transport)
     if fetched is None:
         raise SourceError("http_error", "unexpected 304 without ETag")
-    # Notetype ids of the other subscriptions are never reused nor adopted.
-    exclude = foreign_notetype_ids(read_catalog(col), sub)
-    deck = _without_foreign_anki_ids(fetched.deck, exclude)
+    deck, exclude = _prepare(col, fetched.deck, sub)
     base, plan = _plan(col, deck, sub, exclude)
     if _held(plan, confirmed_full_sync):
         return sub, plan

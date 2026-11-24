@@ -151,3 +151,26 @@ def test_new_subscription_from_a_fetched_deck() -> None:
     )
     assert sub.installed_version is None
     assert sub.available_version == info["version"]
+
+
+def test_exception_message_known_codes_and_unexpected_errors() -> None:
+    assert "Offline" in ui.exception_message(SourceError("http_error"), "en")
+    detail = ui.exception_message(KeyError("boom"), "en")
+    assert "KeyError" in detail
+    assert "boom" in detail
+    assert "Offline" not in detail
+
+
+def test_held_message() -> None:
+    plan = _plan(build_deck(), _sub())
+    assert ui.held_message(_sub(), plan, False, "en") is None
+    needs = replace(plan, needs_full_sync_confirmation=True)
+    assert ui.held_message(_sub(), needs, True, "en") is None
+    changed = ui.held_message(_sub(), needs, False, "en")
+    assert changed is not None
+    assert changed.startswith("Hello World (en) — ")
+    assert "nothing was applied" in changed
+    blocked = ui.held_message(_sub(), replace(plan, blocked="Because."), True, "fr")
+    assert blocked is not None
+    assert blocked.endswith("Because.")
+    assert "Mise à jour refusée" in blocked
