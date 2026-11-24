@@ -18,3 +18,19 @@ jobs:
       - run: uv run ruff check .
       - run: uv run basedpyright
       - run: uv run pytest -q
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Scaffold a deck
+        run: uvx --from ./cli deckdock init /tmp/hello
+      - name: Build with the local action
+        uses: ./action
+        with:
+          command: build
+          path: /tmp/hello
+          deckdock-ref: local
+      - name: Check the build output
+        run: uvx --from ./cli deckdock check /tmp/hello/dist

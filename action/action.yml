@@ -1,0 +1,60 @@
+name: DeckDock
+description: Validate, build or check an Anki deck repository with the DeckDock CLI.
+author: NayanChauveau
+branding:
+  icon: package
+  color: blue
+
+inputs:
+  command:
+    description: "DeckDock command to run: validate, build or check."
+    required: false
+    default: build
+  path:
+    description: "Deck repository root (for check, the dist folder is <path>/dist)."
+    required: false
+    default: "."
+  deckdock-ref:
+    description: "Git ref of NayanChauveau/deckdock to install the CLI from. Empty means the ref this action was called with. Use 'local' to install the CLI from the checkout next to this action (monorepo CI)."
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@v5
+
+    - name: Run deckdock
+      shell: bash
+      env:
+        DD_COMMAND: ${{ inputs.command }}
+        DD_PATH: ${{ inputs.path }}
+        DD_INPUT_REF: ${{ inputs.deckdock-ref }}
+        DD_ACTION_REF: ${{ github.action_ref }}
+        DD_ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+
+        REF="${DD_INPUT_REF:-$DD_ACTION_REF}"
+        if [ -z "$REF" ]; then
+          echo "::error::Cannot determine which DeckDock version to install: github.action_ref is empty and no deckdock-ref input was given. Set deckdock-ref (a tag, branch or SHA, or 'local')."
+          exit 1
+        fi
+
+        if [ "$REF" = "local" ]; then
+          SOURCE="$DD_ACTION_PATH/../cli"
+        else
+          SOURCE="git+https://github.com/NayanChauveau/deckdock@${REF}#subdirectory=cli"
+        fi
+
+        case "$DD_COMMAND" in
+          validate) ARGS=(validate "$DD_PATH") ;;
+          build)    ARGS=(build "$DD_PATH") ;;
+          check)    ARGS=(check "$DD_PATH/dist") ;;
+          *)
+            echo "::error::Unknown command '$DD_COMMAND' (expected validate, build or check)."
+            exit 1
+            ;;
+        esac
+
+        uvx --from "$SOURCE" deckdock "${ARGS[@]}"
