@@ -11,7 +11,8 @@ changes at every check: it stays local to this computer, in
 subscription is added, removed or applied.
 
 The received fingerprints are too big for the collection config: they live in a
-`_deckdock_<deck_id>_<edition>.json` file of the media folder, which AnkiWeb
+`_deckdock_<deck_id>_<edition>.json` file of the media folder (see
+`received_path`), which AnkiWeb
 media sync copies to the other computers and Anki's "Check Media" keeps (its
 name starts with `_`). The file holds one snapshot per installed version, so an
 undo that restores the previous `installed_version` also finds its snapshot.
@@ -381,8 +382,34 @@ def read_full_versions(path: Path) -> dict[str, dict[str, str]]:
     return out
 
 
+_NAME_SAFE = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-.")
+MAX_MEDIA_NAME_BYTES = 120  # AnkiWeb media sync skips longer file names
+
+
+def _name_part(text: str) -> str:
+    """`text` with every character but lowercase ASCII letters, digits, - and .
+    percent-encoded (UTF-8, uppercase hex).
+
+    The result is a valid file name part on every system, keeps "_" free for
+    the separator, and two different texts never differ only by case.
+    """
+    return "".join(
+        c if c in _NAME_SAFE else "".join(f"%{b:02X}" for b in c.encode("utf-8"))
+        for c in text
+    )
+
+
 def received_path(media_dir: Path, deck_id: str, edition: str) -> Path:
-    return media_dir / f"_deckdock_{deck_id}_{edition}.json"
+    """`_deckdock_<deck_id>_<edition>.json`, its parts encoded by `_name_part`.
+
+    A name longer than `MAX_MEDIA_NAME_BYTES` would never reach the other
+    computers: it is replaced by a hash of both parts.
+    """
+    name = f"_deckdock_{_name_part(deck_id)}_{_name_part(edition)}.json"
+    if len(name.encode("utf-8")) > MAX_MEDIA_NAME_BYTES:
+        key = json.dumps([deck_id, edition], ensure_ascii=False).encode("utf-8")
+        name = f"_deckdock_{hashlib.sha256(key).hexdigest()[:40]}.json"
+    return media_dir / name
 
 
 def _load_first_install(raw: object) -> dict[str, str | None] | None:
