@@ -1,4 +1,5 @@
 import json
+import re
 from importlib.resources import files
 from pathlib import Path
 from typing import cast
@@ -8,6 +9,8 @@ import pytest
 from deckdock.build.builder import build
 from deckdock.cli import main
 from deckdock.init import init_project, slugify
+from deckdock.source.load import load_project
+from deckdock.source.validate import validate_project
 
 
 def test_init_then_build_is_valid(tmp_path: Path):
@@ -96,3 +99,17 @@ def test_cli_init(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
     assert (root / "deckdock.yaml").is_file()
     assert main(["init", str(root)]) == 1
     assert "target is not empty" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("doc", ["AGENTS.md", "CONTENT_GUIDELINES.md", "README.md"])
+def test_doc_card_examples_are_valid(tmp_path: Path, doc: str):
+    init_project(tmp_path)
+    text = (tmp_path / doc).read_text(encoding="utf-8")
+    blocks = re.findall(r"```yaml\n(.*?)```", text, flags=re.DOTALL)
+    assert blocks or doc != "AGENTS.md"
+    for i, block in enumerate(blocks):
+        _ = (tmp_path / "cards" / f"doc{i}.yaml").write_text("cards:\n" + block, encoding="utf-8")
+    project, issues = load_project(tmp_path)
+    assert issues == []
+    assert project is not None
+    assert validate_project(project) == []

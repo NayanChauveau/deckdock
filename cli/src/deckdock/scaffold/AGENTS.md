@@ -72,12 +72,12 @@ Use `{{c1::...}}` for each deletion. Numbers (`c1`, `c2`, ...) group deletions i
   type: cloze
   en:
     text: "{{c1::Mitochondria}} produce most of the cell's {{c2::ATP}}."
-    extra: Source: course notes, week 3.
+    extra: "Source: course notes, week 3."
 ```
 
 ### mcq
 
-Exactly one choice should be `correct: true`. Quote `text` if it contains a comma or a colon.
+Give at least 2 choices, exactly one with `correct: true` (`validate` enforces both). Quote `text` if it contains a comma or a colon.
 `explanation` is optional and shown on the back.
 
 ```yaml
