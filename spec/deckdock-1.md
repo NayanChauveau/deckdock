@@ -133,7 +133,7 @@ The JSON Schema encodes the **structural** rules only (it always forbids unknown
 Any language or tool can produce `deckdock/1`: the format is plain JSON plus a `media/` folder. A compiler:
 
 - **MUST** give every note a GUID that is unique within its file and stable across versions (it is the update key);
-- **MUST** keep `deck.id`, edition codes and `notetypes[].id` permanent, since changing one resets the users' review history;
+- **MUST** keep `deck.id`, edition codes, `notetypes[].id` and any source ids its GUIDs derive from (for example card ids) permanent, since changing one resets the users' review history;
 - **MUST** use flat media filenames (no `/`, no `\`);
 - **MUST** produce output that passes `deckdock check` in strict mode;
 - **SHOULD** write `dist/<edition>/deck.json` as UTF-8 with `ensure_ascii=False`, with media in `dist/<edition>/media/`.
