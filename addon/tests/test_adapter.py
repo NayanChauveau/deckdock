@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from anki.collection import Collection
+from anki.collection import AddNoteRequest, Collection
 from anki.dbproxy import DBProxy, ValueForDB
 from anki.decks import DeckId
 from anki.models import NotetypeId
@@ -18,6 +18,8 @@ from deckdock.format import CompiledDeck, Note
 
 from deckdock_addon import adapter
 from deckdock_addon.adapter import (
+    ApplyRefusedError,
+    PartialApplyError,
     apply_plan,
     notetype_name,
     read_local_state,
@@ -572,3 +574,200 @@ def test_write_media_never_overwrites(col: Collection) -> None:
     assert existing.read_bytes() == b"someone else's file"
     assert (Path(col.media.dir()) / local).read_bytes() == data
     assert media["h.png"].sha256 == media_entry("h.png", data)["sha256"]
+
+
+def deckdock_notetypes(col: Collection) -> list[str]:
+    return sorted(
+        x.name for x in col.models.all_names_and_ids() if x.name.startswith("Hello")
+    )
+
+
+def user_action(col: Collection) -> str:
+    """Make an undoable change of the user's own; return its undo label."""
+    stock = col.models.by_name("Basic")
+    assert stock is not None
+    note = col.new_note(stock)
+    note["Front"] = "my own note"
+    _ = col.add_note(note, DeckId(1))
+    label = col.undo_status().undo
+    assert label
+    return label
+
+
+def test_filtered_deck_clash_refused_before_any_write(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    label = user_action(col)
+    filtered = col.decks.new_filtered("Hello World")
+    label = col.undo_status().undo or label
+    mod, count = col.mod, col.note_count()
+
+    with pytest.raises(ApplyRefusedError) as raised:
+        _ = run(col, server, sub, profile_dir)
+
+    assert raised.value.code == "deck_name_conflict"
+    assert deckdock_notetypes(col) == []
+    assert (col.mod, col.note_count()) == (mod, count)
+    assert col.undo_status().undo == label
+    assert read_catalog(col).subscriptions == ()
+
+    _ = col.decks.rename(filtered, "My filtered deck")
+    new_sub, plan = run(col, server, sub, profile_dir)
+    assert plan.counts.created == 3
+    assert new_sub.root_deck_anki_id != filtered
+
+
+def test_subdeck_under_filtered_deck_refused(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    new_sub, _ = run(col, server, sub, profile_dir)
+    _ = col.decks.new_filtered("Hello World::Extra")
+    deck = build_deck("2")
+    deck["notes"].append(basic_note("hw-basic-2", "new", "note", "Extra::More"))
+    server.publish(deck)
+    count = col.note_count()
+
+    with pytest.raises(ApplyRefusedError, match="filtered"):
+        _ = run(col, server, new_sub, profile_dir)
+    assert col.note_count() == count
+    assert read_catalog(col).subscriptions == (new_sub,)
+
+
+def test_note_deleted_between_plan_and_apply_is_refused(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    new_sub, _ = run(col, server, sub, profile_dir)
+    deck = build_deck("2")
+    deck["notes"][1]["fields"]["Back"] = "chatte"
+    deck["notes"].append(basic_note("hw-basic-2", "new", "note"))
+    plan = make_plan(deck, new_sub, read_local_state(col, deck, new_sub))
+    _ = col.remove_notes([must_note(col, "hw-reversed-1").id])
+    count = col.note_count()
+    label = col.undo_status().undo
+
+    with pytest.raises(ApplyRefusedError) as raised:
+        _ = apply_plan(col, deck, new_sub, plan, undo_label=LABEL)
+
+    assert raised.value.code == "collection_changed"
+    assert col.note_count() == count
+    assert note_by_guid(col, "hw-basic-2") is None
+    assert col.undo_status().undo == label
+
+
+def test_backend_error_mid_apply_is_reported_and_retry_does_not_duplicate(
+    col: Collection,
+    server: FakeServer,
+    sub: Subscription,
+    profile_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    new_sub, _ = run(col, server, sub, profile_dir)
+    deck = build_deck("2")
+    deck["notes"][1]["fields"]["Back"] = "chatte"
+    deck["notes"].append(basic_note("hw-basic-2", "new", "note"))
+    server.publish(deck)
+    real_update = col.update_notes
+
+    def update_with_missing_note(notes: list[AnkiNote]) -> object:
+        ghost = col.get_note(notes[0].id)
+        ghost.id = NoteId(999_999_999)  # the backend fails: no such note
+        return real_update([*notes, ghost])
+
+    monkeypatch.setattr(col, "update_notes", update_with_missing_note)
+    with pytest.raises(PartialApplyError) as raised:
+        _ = run(col, server, new_sub, profile_dir)
+    monkeypatch.undo()
+
+    assert raised.value.__cause__ is not None
+    assert "Check again" in str(raised.value)
+    assert read_catalog(col).subscriptions == (new_sub,)
+
+    finished, plan = run(col, server, new_sub, profile_dir)
+
+    assert finished.installed_version == "2"
+    assert deckdock_notetypes(col) == [
+        "Hello World (en) · Basic",
+        "Hello World (en) · Basic (and reversed card)",
+        "Hello World (en) · Cloze",
+    ]
+    assert col.note_count() == 4
+    assert scalar(col, "select count() from notes where guid = 'hw-basic-2'") == 1
+    assert must_note(col, "hw-reversed-1")["Back"] == "chatte"
+    assert "hw-basic-2" in finished.received
+    assert not plan.skipped
+    _, plan3 = run(col, server, finished, profile_dir)
+    assert is_noop(plan3)
+
+
+def test_partial_install_retry_reuses_notetypes_and_root_deck(
+    col: Collection,
+    server: FakeServer,
+    sub: Subscription,
+    profile_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_add = col.add_notes
+
+    def add_with_broken_note(requests: list[AddNoteRequest]) -> object:
+        broken = col.new_note(requests[0].note.note_type() or {})
+        broken.mid = NotetypeId(999_999_999)  # the backend fails: no such notetype
+        return real_add([*requests, AddNoteRequest(broken, requests[0].deck_id)])
+
+    monkeypatch.setattr(col, "add_notes", add_with_broken_note)
+    with pytest.raises(PartialApplyError) as raised:
+        _ = run(col, server, sub, profile_dir)
+    monkeypatch.undo()
+
+    assert raised.value.__cause__ is not None
+    assert col.note_count() == 0
+    assert len(deckdock_notetypes(col)) == 3  # left by the failed attempt
+    assert read_catalog(col).subscriptions == ()
+
+    new_sub, plan = run(col, server, sub, profile_dir)
+
+    assert plan.counts.created == 3
+    assert len(deckdock_notetypes(col)) == 3
+    assert [d.name for d in col.decks.all_names_and_ids()].count("Hello World") == 1
+    assert col.note_count() == 3
+    _, plan2 = run(col, server, new_sub, profile_dir)
+    assert is_noop(plan2)
+
+
+def test_user_edit_during_media_download_is_not_overwritten(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    new_sub, _ = run(col, server, sub, profile_dir)
+    blue = png_bytes(0, 0, 255)
+    deck = build_deck("2", image=blue)
+    deck["notes"][1]["fields"]["Back"] = "chatte"
+    server.publish(deck, blue)
+
+    def user_edits(_name: str) -> None:
+        note = must_note(col, "hw-reversed-1")
+        note["Back"] = "my own translation"
+        _ = col.update_note(note)
+
+    server.on_media = user_edits
+    updated, plan = run(col, server, new_sub, profile_dir)
+
+    assert must_note(col, "hw-reversed-1")["Back"] == "my own translation"
+    assert [(s.guid, s.reason) for s in plan.skipped] == [
+        ("hw-reversed-1", "modified_locally")
+    ]
+    assert updated.media["h.png"].local_name != "h.png"
+    assert plan.counts.updated == 1  # the basic note, for its new image name
+
+
+def test_noop_update_adds_no_undo_entry(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    new_sub, _ = run(col, server, sub, profile_dir)
+    label = user_action(col)
+
+    again, plan = run(col, server, new_sub, profile_dir)
+
+    assert is_noop(plan)
+    assert col.undo_status().undo == label
+    assert again.etag != new_sub.etag  # the fake server sends a new ETag each time
+    assert read_catalog(col).subscriptions == (again,)
+    assert col.note_count() == 4

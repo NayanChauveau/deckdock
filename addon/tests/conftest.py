@@ -7,7 +7,7 @@ import hashlib
 import json
 import struct
 import zlib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -164,6 +164,7 @@ class FakeServer:
         self.media: dict[str, bytes] = {}
         self.failing: set[str] = set()
         self.requests: list[str] = []
+        self.on_media: Callable[[str], None] | None = None
 
     def publish(self, deck: CompiledDeck, image: bytes | None = None) -> None:
         self.decks = [json.dumps(deck).encode("utf-8")]
@@ -183,6 +184,8 @@ class FakeServer:
             return Response(200, {"etag": f'"{len(self.requests)}"'}, body)
         if url.startswith(BASE_URL + "media/"):
             name = url.removeprefix(BASE_URL + "media/")
+            if self.on_media is not None:
+                self.on_media(name)
             if name in self.media:
                 return Response(200, {}, self.media[name])
         return Response(404, {}, b"")
