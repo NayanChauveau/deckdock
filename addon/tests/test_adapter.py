@@ -1061,3 +1061,18 @@ def test_double_undo_keeps_the_base_snapshot(
     _ = run(col, server, current, profile_dir)
     assert must_note(col, "hw-reversed-1")["Back"] == "minou"
     assert must_note(col, "hw-basic-3")["Front"] == "three"
+
+
+def test_browser_search_finds_the_skipped_notes(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    _ = run(col, server, sub, profile_dir)
+    guids = ["hw-basic-1", "hw-cloze-1", "absent-guid"]
+
+    search = adapter.browser_search(col, guids)
+
+    assert search is not None
+    found = set(col.find_notes(search))
+    assert found == {must_note(col, "hw-basic-1").id, must_note(col, "hw-cloze-1").id}
+    assert adapter.browser_search(col, ["absent-guid"]) is None
+    assert adapter.browser_search(col, []) is None

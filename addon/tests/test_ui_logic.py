@@ -98,10 +98,15 @@ def test_pending_updates_ignores_not_installed_and_current() -> None:
     assert [s.id for s in ui.pending_updates(subs)] == ["a"]
 
 
-def test_guid_search_escapes_special_characters() -> None:
-    assert ui.guid_search(["abc"]) == '"guid:abc"'
-    assert ui.guid_search(["a", "b"]) == '"guid:a" or "guid:b"'
-    assert ui.guid_search(['a"b*c_d\\e']) == '"guid:a\\"b\\*c\\_d\\\\e"'
+def test_browsable_guids_skip_notes_deleted_by_the_user() -> None:
+    skipped = [
+        engine.Skipped("a", "modified_locally", "A"),
+        engine.Skipped("b", "deleted_locally", "B"),
+        engine.Skipped("c", "foreign_note", "C"),
+    ]
+    assert ui.browsable_guid(skipped[0]) == "a"
+    assert ui.browsable_guid(skipped[1]) is None
+    assert ui.browsable_guid(skipped[2]) == "c"
 
 
 def test_clears_undo_only_when_a_declared_anki_id_notetype_is_created() -> None:

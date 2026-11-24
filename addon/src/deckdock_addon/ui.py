@@ -54,10 +54,11 @@ from deckdock_addon import strings
 from deckdock_addon.adapter import (
     ApplyRefusedError,
     PartialApplyError,
+    browser_search,
     preview_plan,
     update_subscription,
 )
-from deckdock_addon.engine import Plan, summary_lines
+from deckdock_addon.engine import Plan, Skipped, summary_lines
 from deckdock_addon.sources import (
     FetchedDeck,
     IndexEdition,
@@ -176,19 +177,9 @@ def new_subscription(
     )
 
 
-def guid_search(guids: Sequence[str]) -> str:
-    """An Anki search for these note GUIDs, with search syntax escaped."""
-
-    def term(guid: str) -> str:
-        escaped = (
-            guid.replace("\\", "\\\\")
-            .replace('"', '\\"')
-            .replace("*", "\\*")
-            .replace("_", "\\_")
-        )
-        return f'"guid:{escaped}"'
-
-    return " or ".join(term(g) for g in guids)
+def browsable_guid(skipped: Skipped) -> str | None:
+    """The GUID to look up in the Browser, or None for a note the user deleted."""
+    return None if skipped.reason == "deleted_locally" else skipped.guid
 
 
 def clears_undo(plan: Plan) -> bool:
@@ -903,9 +894,11 @@ class SummaryDialog(QDialog):
             for note in plan.skipped:
                 label = f"{note.preview} — {strings.skip_text(note.reason)}"
                 item = QListWidgetItem(label)
-                item.setData(Qt.ItemDataRole.UserRole, note.guid)
+                item.setData(Qt.ItemDataRole.UserRole, browsable_guid(note))
                 skipped.addItem(item)
             browse = QPushButton(strings.OPEN_IN_BROWSER)
+            # Notes deleted by the user have nothing to show in the Browser.
+            browsable = any(browsable_guid(n) is not None for n in plan.skipped)
             skipped.setVisible(False)
             browse.setVisible(False)
 
@@ -914,7 +907,7 @@ class SummaryDialog(QDialog):
                     Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
                 )
                 skipped.setVisible(checked)
-                browse.setVisible(checked)
+                browse.setVisible(checked and browsable)
 
             qconnect(toggle.toggled, toggled)
             qconnect(browse.clicked, lambda: self._open_in_browser(skipped))
@@ -933,8 +926,13 @@ class SummaryDialog(QDialog):
             value = cast(object, item.data(Qt.ItemDataRole.UserRole)) if item else None
             if isinstance(value, str):
                 guids.append(value)
-        if guids:
-            dialogs.open("Browser", _main(), search=(guid_search(guids),))
+        col = _collection()
+        if not guids or col is None:
+            return
+        # Resolved at click time: the notes may have changed since the summary.
+        search = browser_search(col, guids)
+        if search is not None:
+            dialogs.open("Browser", _main(), search=(search,))
 
 
 @final
