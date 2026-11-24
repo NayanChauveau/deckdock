@@ -331,6 +331,15 @@ def test_redirect_to_http_rejected() -> None:
     assert len(opener.requests) == 1
 
 
+def test_invalid_redirect_location_rejected() -> None:
+    opener = FakeOpener(
+        {"https://a.test/x": lambda: _redirect("https://a.test/x", "https://[bad/x")}
+    )
+    with pytest.raises(SourceError) as exc:
+        _ = urllib_transport("https://a.test/x", {}, 100, opener=opener)
+    assert exc.value.code == "redirect_rejected"
+
+
 def test_http_initial_url_rejected() -> None:
     opener = FakeOpener({})
     with pytest.raises(SourceError) as exc:
