@@ -31,7 +31,8 @@ def test_vendored_copy_matches_library() -> None:
 
 
 def test_import_does_not_require_aqt(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert "aqt" not in sys.modules
+    # aqt is a dev dependency (to type-check ui.py): hide it for this import.
+    monkeypatch.setitem(sys.modules, "aqt", None)
     monkeypatch.delitem(sys.modules, "deckdock_addon")
     monkeypatch.delitem(sys.modules, "deckdock_addon.ui", raising=False)
     _ = importlib.import_module("deckdock_addon")
