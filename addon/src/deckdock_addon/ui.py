@@ -10,12 +10,13 @@ profile closes, so a callback from before that moment does nothing.
 
 from __future__ import annotations
 
+import traceback
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast, final
+from typing import cast, final, override
 
 from anki.collection import Collection, OpChanges
 from aqt import dialogs, gui_hooks, mw
@@ -48,21 +49,15 @@ from aqt.utils import (
     showWarning,
     tooltip,
 )
-from deckdock.format import CompiledDeck
 
 from deckdock_addon import strings
 from deckdock_addon.adapter import (
     ApplyRefusedError,
     PartialApplyError,
-    adopt_notetypes,
-    foreign_notetype_ids,
-    read_local_state,
+    preview_plan,
     update_subscription,
 )
-from deckdock_addon.adapter import (
-    _without_foreign_anki_ids as without_foreign_anki_ids,  # pyright: ignore[reportPrivateUsage]
-)
-from deckdock_addon.engine import Plan, make_plan, summary_lines
+from deckdock_addon.engine import Plan, summary_lines
 from deckdock_addon.sources import (
     FetchedDeck,
     IndexEdition,
@@ -214,6 +209,26 @@ def section_lines(review: Review, lang: str) -> list[str]:
     return lines
 
 
+def exception_message(exc: Exception, lang: str | None = None) -> str:
+    """Localized text for a known error code, else the exception type and message."""
+    if isinstance(exc, SourceError | ApplyRefusedError | PartialApplyError):
+        return strings.error_text(exc.code, lang)
+    detail = f"{type(exc).__name__}: {exc}"
+    return strings.text("ERROR_DETAIL", lang).format(detail=detail)
+
+
+def held_message(
+    sub: Subscription, plan: Plan, confirmed: bool, lang: str
+) -> str | None:
+    """Why `update_subscription` applied nothing, or None when it was applied."""
+    if plan.blocked is not None:
+        return "\n".join(summary_lines(plan, sub.name, sub.edition, lang))
+    if plan.needs_full_sync_confirmation and not confirmed:
+        title = f"{sub.name} ({sub.edition}) — "
+        return title + strings.text("CHANGED_SINCE_SUMMARY", lang)
+    return None
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -361,6 +376,7 @@ def _close_profile() -> None:
     for modal in _modals.copy():
         modal.reject()
     if _dialog is not None:
+        _dialog.deleteLater()
         _ = _dialog.close()
         _dialog = None
 
@@ -456,22 +472,29 @@ def _offer_updates() -> None:
 # --- review and apply -----------------------------------------------------------
 
 
-def _preview(col: Collection, sub: Subscription, transport: Transport) -> Review:
-    """Plan an update on the current collection, without writing anything."""
+Fetched = tuple[Subscription, FetchedDeck | str]
+
+
+def _fetch_for_review(sub: Subscription, transport: Transport) -> Fetched:
+    """Download deck.json (no collection needed); an error becomes its code."""
     try:
         fetched = fetch_deck(sub.base_url, etag=None, transport=transport)
     except SourceError as exc:
-        return Review(sub, None, exc.code)
-    if fetched is None:
-        return Review(sub, None, "http_error")
-    exclude = foreign_notetype_ids(read_catalog(col), sub)
-    deck: CompiledDeck = without_foreign_anki_ids(fetched.deck, exclude)
-    base = adopt_notetypes(col, deck, sub, exclude)
-    return Review(sub, make_plan(deck, base, read_local_state(col, deck, base)), None)
+        return sub, exc.code
+    return sub, ("http_error" if fetched is None else fetched)
 
 
-def _start_review(subs: list[Subscription], *, progress: bool) -> None:
-    """Compute the plans in the background, show the summary, then apply."""
+def _plan_review(col: Collection, item: Fetched) -> Review:
+    sub, fetched = item
+    if isinstance(fetched, str):
+        return Review(sub, None, fetched)
+    return Review(sub, preview_plan(col, fetched.deck, sub), None)
+
+
+def _start_review(
+    subs: list[Subscription], *, progress: bool, install: bool = False
+) -> None:
+    """Fetch, then plan in the background, show the summary, then apply."""
     collection = _collection()
     epoch = _epoch
     if _busy or collection is None or not subs:
@@ -479,30 +502,48 @@ def _start_review(subs: list[Subscription], *, progress: bool) -> None:
     transport = _transport(epoch)
     _set_busy(True)
 
-    def op(col: Collection) -> list[Review]:
-        return [_preview(col, s, transport) for s in subs]
-
-    def success(reviews: list[Review]) -> None:
-        if _stale(epoch, collection):
-            return
-        dialog = SummaryDialog(_parent(), reviews)
-        _track(dialog)
-        accepted = dialog.exec()
-        if _stale(epoch, collection):
-            return
-        todo = [r for r in reviews if r.applicable]
-        if accepted and todo:
-            _apply_next(todo, collection, epoch)
-        else:
-            _set_busy(False)
-
-    def failure(exc: Exception) -> None:
+    def fail(exc: Exception) -> None:
         if _stale(epoch, collection):
             return
         _set_busy(False)
         _warn_exception(exc)
 
-    query = QueryOp(parent=_parent(), op=op, success=success).failure(failure)
+    def show(reviews: list[Review]) -> None:
+        if _stale(epoch, collection):
+            return
+        dialog = SummaryDialog(_parent(), reviews, install=install)
+        _track(dialog)
+
+        def finished(result: int) -> None:
+            if _stale(epoch, collection):
+                return
+            accepted = result == QDialog.DialogCode.Accepted.value
+            todo = [r for r in reviews if r.applicable]
+            if accepted and todo:
+                _apply_next(todo, collection, epoch, [])
+            else:
+                _set_busy(False)
+
+        # open() instead of exec(): no nested event loop inside a QueryOp callback.
+        qconnect(dialog.finished, finished)
+        dialog.open()
+
+    def planned(fetched: list[Fetched]) -> None:
+        if _stale(epoch, collection):
+            return
+        QueryOp(
+            parent=_parent(),
+            op=lambda col: [_plan_review(col, item) for item in fetched],
+            success=show,
+        ).failure(fail).run_in_background()
+
+    # The network part runs without the collection, so Anki is not blocked on it.
+    query = QueryOp(
+        parent=_parent(),
+        op=lambda _col: [_fetch_for_review(s, transport) for s in subs],
+        success=planned,
+    ).failure(fail)
+    query = query.without_collection()
     if progress:
         query = query.with_progress()
     query.run_in_background()
@@ -515,12 +556,20 @@ class _Applied:
     changes: OpChanges
 
 
-def _apply_next(todo: list[Review], collection: Collection, epoch: int) -> None:
-    """Apply the reviews one after the other; stays busy until the last one."""
+def _apply_next(
+    todo: list[Review], collection: Collection, epoch: int, held: list[str]
+) -> None:
+    """Apply the reviews one after the other; stays busy until the last one.
+
+    A subscription held back at apply time (the deck changed since the summary) is
+    reported at the end, and the others still go ahead.
+    """
     if not todo:
         _set_busy(False)
         if _dialog is not None:
             _dialog.refresh()
+        if held:
+            _warn("\n\n".join(held), parent=_parent(), title=strings.WINDOW_TITLE)
         return
     review, rest = todo[0], todo[1:]
     sub = review.sub
@@ -553,24 +602,15 @@ def _apply_next(todo: list[Review], collection: Collection, epoch: int) -> None:
     def success(result: _Applied) -> None:
         if _stale(epoch, collection):
             return
-        if result.plan.blocked is not None:
-            _warn(result.plan.blocked, parent=_parent(), title=strings.WINDOW_TITLE)
-        elif result.plan.needs_full_sync_confirmation and not confirmed:
-            _warn(
-                strings.CHANGED_SINCE_SUMMARY,
-                parent=_parent(),
-                title=strings.WINDOW_TITLE,
-            )
+        message = held_message(sub, result.plan, confirmed, strings.language())
+        if message is not None:
+            held.append(message)
         else:
             _update_subscription(
                 sub.id, lambda s: replace(s, last_error=None, last_checked_at=_now())
             )
             tooltip(strings.text("UPDATED").format(name=sub.name), parent=_parent())
-            _apply_next(rest, collection, epoch)
-            return
-        _set_busy(False)
-        if _dialog is not None:
-            _dialog.refresh()
+        _apply_next(rest, collection, epoch, held)
 
     def failure(exc: Exception) -> None:
         if _stale(epoch, collection):
@@ -588,12 +628,15 @@ def _apply_next(todo: list[Review], collection: Collection, epoch: int) -> None:
     ).run_in_background()
 
 
-def _warn_exception(exc: Exception) -> None:
-    if isinstance(exc, SourceError | ApplyRefusedError | PartialApplyError):
-        message = strings.error_text(exc.code)
-    else:
-        message = strings.text("ERROR_DETAIL").format(detail=str(exc))
-    _warn(message, parent=_dialog or _parent(), title=strings.WINDOW_TITLE)
+def _warn_exception(exc: Exception, parent: QWidget | None = None) -> None:
+    if not isinstance(exc, SourceError | ApplyRefusedError | PartialApplyError):
+        # An unexpected error: keep the traceback in Anki's console/log.
+        traceback.print_exception(exc)
+    _warn(
+        exception_message(exc),
+        parent=parent or _dialog or _parent(),
+        title=strings.WINDOW_TITLE,
+    )
 
 
 # --- dialogs --------------------------------------------------------------------
@@ -699,11 +742,17 @@ class ManagerDialog(QDialog):
     def _add(self) -> None:
         if _busy or _collection() is None:
             return
+        epoch, collection = _epoch, _collection()
         dialog = AddDialog(self)
         _track(dialog)
-        if dialog.exec() and dialog.added is not None:
+        _set_busy(True)  # no startup review or check while the dialog is open
+        accepted = dialog.exec()
+        if _stale(epoch, collection):
+            return
+        _set_busy(False)
+        if accepted and dialog.added is not None:
             self.refresh()
-            _start_review([dialog.added], progress=True)
+            _start_review([dialog.added], progress=True, install=True)
 
     def _check(self) -> None:
         subs = self._targets()
@@ -794,11 +843,15 @@ class ManagerDialog(QDialog):
 class SummaryDialog(QDialog):
     """One section per subscription: summary text, skipped notes, open in browser."""
 
-    def __init__(self, parent: QWidget, reviews: list[Review]) -> None:
+    def __init__(
+        self, parent: QWidget, reviews: list[Review], *, install: bool = False
+    ) -> None:
         super().__init__(parent)
         self._lists: list[tuple[QListWidget, Review]] = []
         lang = strings.language()
-        self.setWindowTitle(strings.text("SUMMARY_TITLE"))
+        self.setWindowTitle(
+            strings.text("SUMMARY_TITLE_INSTALL" if install else "SUMMARY_TITLE")
+        )
         self.resize(640, 480)
         body = QWidget()
         sections = QVBoxLayout(body)
@@ -894,6 +947,7 @@ class AddDialog(QDialog):
         self._epoch = _epoch
         self._collection = _collection()
         self._source: Source | None = None
+        self._closed = False
         self.setWindowTitle(strings.ADD_TITLE)
         self.resize(560, 260)
         help_label = QLabel(strings.ADD_HELP)
@@ -920,8 +974,14 @@ class AddDialog(QDialog):
         layout.addWidget(self.editions)
         layout.addLayout(buttons)
 
+    @override
+    def done(self, a0: int) -> None:
+        # A background fetch that ends after Cancel must change nothing.
+        self._closed = True
+        super().done(a0)
+
     def _stale(self) -> bool:
-        return _stale(self._epoch, self._collection)
+        return self._closed or _stale(self._epoch, self._collection)
 
     def _fail(self, message: str) -> None:
         self.primary.setEnabled(True)
@@ -944,8 +1004,9 @@ class AddDialog(QDialog):
         def failed(exc: Exception) -> None:
             if self._stale():
                 return
-            code = exc.code if isinstance(exc, SourceError) else "http_error"
-            self._fail(strings.error_text(code))
+            if not isinstance(exc, SourceError):
+                traceback.print_exception(exc)
+            self._fail(exception_message(exc))
 
         QueryOp(parent=self, op=lambda _col: op(), success=done).failure(
             failed

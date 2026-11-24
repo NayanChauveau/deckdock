@@ -55,7 +55,7 @@ FR: dict[str, str] = {
     "SKIPPED_TOGGLE": "Notes ignorées ({count})",
     "OPEN_IN_BROWSER": "Ouvrir dans le navigateur",
     "CLEARS_UNDO": (
-        "L'historique d'annulation d'Anki sera effacé par cette première installation."
+        "L'historique d'annulation d'Anki sera effacé par cette mise à jour."
     ),
     "UPDATED": "{name} : mise à jour appliquée.",
     "CHANGED_SINCE_SUMMARY": (
@@ -142,7 +142,7 @@ EN: dict[str, str] = {
     "SUMMARY_TITLE_INSTALL": "Deck installation",
     "SKIPPED_TOGGLE": "Skipped notes ({count})",
     "OPEN_IN_BROWSER": "Open in browser",
-    "CLEARS_UNDO": ("Anki's Undo history will be cleared by this first installation."),
+    "CLEARS_UNDO": ("Anki's Undo history will be cleared by this update."),
     "UPDATED": "{name}: update applied.",
     "CHANGED_SINCE_SUMMARY": (
         "The deck changed since the summary: nothing was applied. "
