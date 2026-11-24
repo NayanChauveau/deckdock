@@ -2,6 +2,7 @@
 
 from deckdock.format.check import (
     FORMAT,
+    MAX_ANKI_ID,
     MAX_MEDIA_BYTES,
     MAX_NOTES,
     MAX_TOTAL_MEDIA_BYTES,
@@ -12,6 +13,7 @@ from deckdock.format.check import (
 
 __all__ = [
     "FORMAT",
+    "MAX_ANKI_ID",
     "MAX_MEDIA_BYTES",
     "MAX_NOTES",
     "MAX_TOTAL_MEDIA_BYTES",

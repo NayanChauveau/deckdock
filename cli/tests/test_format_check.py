@@ -445,3 +445,21 @@ def test_reference_patterns_ignore_case(tmp_path: pathlib.Path, text: str):
     assert [i.message for i in issues] == [
         "notes[0].fields.Front: references unlisted media 'x.png'"
     ]
+
+
+@pytest.mark.parametrize("value", [2**63 - 1, 1])
+def test_anki_id_upper_bound_accepted(value: int):
+    data = minimal()
+    cast(Deck, data["deck"])["anki_id"] = value
+    cast(list[dict[str, object]], data["notetypes"])[0]["anki_id"] = value
+    assert check_deck(data) == []
+
+
+def test_anki_id_upper_bound_rejected():
+    data = minimal()
+    cast(Deck, data["deck"])["anki_id"] = 2**63
+    cast(list[dict[str, object]], data["notetypes"])[0]["anki_id"] = 2**63
+    assert [i.message for i in check_deck(data)] == [
+        f"deck.anki_id: must be <= {2**63 - 1}",
+        f"notetypes[0].anki_id: must be <= {2**63 - 1}",
+    ]

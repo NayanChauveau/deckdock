@@ -49,7 +49,7 @@ Unknown keys are rejected in every object, to catch typos. "Required" means the 
 | `homepage` | string | no | |
 | `license` | string | no | |
 | `generator` | string | no | For example `"deckdock 0.1.0"`. |
-| `anki_id` | integer | no | > 0. See "Attaching to an existing deck". |
+| `anki_id` | integer | no | 1 to 2^63-1 (9223372036854775807). See "Attaching to an existing deck". |
 | `options` | object | no | Study preset. Only `new_per_day` and `reviews_per_day` (integers >= 0). |
 
 ### `notetypes[]`
@@ -62,7 +62,7 @@ Unknown keys are rejected in every object, to catch typos. "Required" means the 
 | `fields` | list of string | yes | Non-empty. Names are non-empty and unique. Their order is the field order. |
 | `templates` | list of template | yes | Non-empty. A `cloze` notetype has exactly one template. |
 | `css` | string | yes | |
-| `anki_id` | integer | no | > 0. See "Attaching to an existing deck". |
+| `anki_id` | integer | no | 1 to 2^63-1 (9223372036854775807). See "Attaching to an existing deck". |
 
 Each template has the required string keys `name`, `front` and `back`. Templates use the Anki
 syntax (`{{Field}}`, `{{cloze:Text}}`, `{{FrontSide}}`). JavaScript is allowed in templates.
@@ -113,7 +113,7 @@ These are initial guard rails and may be adjusted.
 
 ## Attaching to an existing deck (`anki_id`)
 
-`deck.anki_id` and `notetypes[].anki_id` are optional integers. When present, the add-on reuses exactly that Anki root deck and notetype, so decks already installed from an `.apkg` (fixed genanki ids) can be adopted without changing notetype. The notetype `name` and field names must then match the existing ones. Without them, the add-on derives ids deterministically.
+`deck.anki_id` and `notetypes[].anki_id` are optional integers between 1 and 2^63-1 (Anki ids are signed 64-bit integers). When present, the add-on reuses exactly that Anki root deck and notetype, so decks already installed from an `.apkg` (fixed genanki ids) can be adopted without changing notetype. The notetype `name` and field names must then match the existing ones. Without them, the add-on derives ids deterministically.
 
 `deck.options` is an optional study preset applied only on first installation and never overwritten afterwards.
 
