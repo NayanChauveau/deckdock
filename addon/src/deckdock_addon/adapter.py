@@ -43,6 +43,7 @@ from deckdock_addon.engine import (
     make_plan,
     preview,
     received_fingerprint,
+    received_missing_plan,
     to_local_names,
 )
 from deckdock_addon.sources import SourceError, Transport, fetch_deck, fetch_media
@@ -57,7 +58,6 @@ from deckdock_addon.store import (
     read_full_versions,
     read_received,
     received_path,
-    received_snapshot_is,
     write_full_versions,
     write_received,
 )
@@ -580,9 +580,10 @@ class _Applier:
     def persist(self, sub: Subscription, *, undoable: bool) -> None:
         """Store the subscription in the collection config.
 
-        Inside the undo entry, undoing the update also restores what the
-        subscription had received, so undone notes are not later mistaken for
-        notes deleted by the user.
+        Inside the undo entry, undoing the update also restores the previous
+        `installed_version`, whose received snapshot the media folder file still
+        holds, so undone notes are not later mistaken for notes deleted by the
+        user.
         """
         subs = self.catalog.subscriptions
         sub = replace(sub, received={})  # kept in the media folder, not the config
@@ -676,7 +677,7 @@ def apply_plan(
     if plan.needs_full_sync_confirmation and not confirmed_full_sync:
         raise ValueError("this plan needs the user to confirm a full sync")
     new_sub, extra = _Applier(col, deck, sub, plan).run(undo_label)
-    _write_received(col, new_sub)
+    _write_received(col, new_sub, base=sub.installed_version)
     return new_sub, extra
 
 
@@ -687,25 +688,33 @@ def _received_file(col: Collection, sub: Subscription) -> Path:
     return received_path(Path(col.media.dir()), sub.deck_id, sub.edition)
 
 
-def with_received(col: Collection, sub: Subscription) -> Subscription:
-    """`sub` with the received fingerprints of its installed version."""
+def with_received(col: Collection, sub: Subscription) -> Subscription | None:
+    """`sub` with the received fingerprints of its installed version.
+
+    None when `sub` is installed but its received file is missing or unusable
+    on this computer (see `store.read_received`).
+    """
     received = read_received(_received_file(col, sub), sub.installed_version)
-    return replace(sub, received=received)
+    return None if received is None else replace(sub, received=received)
 
 
-def _write_received(col: Collection, sub: Subscription) -> None:
+def _write_received(col: Collection, sub: Subscription, *, base: str | None) -> None:
     """Record the received fingerprints of the applied version, unless already there.
 
-    A failure is only logged: the update itself is applied and persisted.
+    `base` is the version installed before the apply; its snapshot is kept for
+    an undo. A failure is only logged: the update itself is applied and persisted.
     """
     if sub.installed_version is None:
         return
     path = _received_file(col, sub)
-    if received_snapshot_is(path, sub.installed_version, sub.received):
-        return
     try:
-        write_received(
-            path, sub.deck_id, sub.edition, sub.installed_version, sub.received
+        _ = write_received(
+            path,
+            sub.deck_id,
+            sub.edition,
+            sub.installed_version,
+            sub.received,
+            base=base,
         )
     except OSError as error:
         _log.warning("DeckDock: could not write %s: %s", path, error)
@@ -772,7 +781,10 @@ def _without_foreign_anki_ids(
 def _plan(
     col: Collection, deck: CompiledDeck, sub: Subscription, exclude: frozenset[int]
 ) -> tuple[Subscription, Plan]:
-    base = adopt_notetypes(col, deck, with_received(col, sub), exclude)
+    loaded = with_received(col, sub)
+    if loaded is None:
+        return sub, received_missing_plan(deck, sub)
+    base = adopt_notetypes(col, deck, loaded, exclude)
     return base, make_plan(deck, base, read_local_state(col, deck, base))
 
 

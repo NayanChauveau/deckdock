@@ -253,15 +253,7 @@ def full_versions_path(profile_dir: Path, subscription_id: str) -> Path:
 
 
 def write_full_versions(path: Path, versions: dict[str, dict[str, str]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(versions, fh, ensure_ascii=False)
-        _ = Path(tmp).replace(path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    _atomic_write_json(path, versions)
 
 
 def read_full_versions(path: Path) -> dict[str, dict[str, str]]:
@@ -311,35 +303,28 @@ def _read_received_file(path: Path) -> dict[str, object] | None:
     return top
 
 
-def read_received(path: Path, installed_version: str | None) -> dict[str, Received]:
-    """The snapshot of `installed_version`, else the latest one, else `{}`.
+def read_received(
+    path: Path, installed_version: str | None
+) -> dict[str, Received] | None:
+    """The snapshot of `installed_version`, else the latest one.
 
-    Never raises: a missing, unreadable or malformed file, or one written for
-    another deck or edition than its name says, reads as `{}`.
+    A fresh subscription (`installed_version` None) has received nothing: `{}`.
+    Otherwise None means the file is unusable: missing, unreadable, malformed,
+    written for another deck or edition than its name says, or without the
+    installed snapshot nor a latest one. Never raises.
     """
     if installed_version is None:
         return {}
     top = _read_received_file(path)
     if top is None:
-        return {}
+        return None
     snapshots = cast(dict[str, dict[str, Received]], top["snapshots"])
     if installed_version in snapshots:
         return snapshots[installed_version]
     latest = top.get("latest")
     if isinstance(latest, str) and latest in snapshots:
         return snapshots[latest]
-    return {}
-
-
-def received_snapshot_is(
-    path: Path, version: str, received: dict[str, Received]
-) -> bool:
-    """Whether the file's latest snapshot is `version`, holding exactly `received`."""
-    top = _read_received_file(path)
-    if top is None or top.get("latest") != version:
-        return False
-    snapshots = cast(dict[str, dict[str, Received]], top["snapshots"])
-    return snapshots.get(version) == received
+    return None
 
 
 def write_received(
@@ -348,25 +333,25 @@ def write_received(
     edition: str,
     version: str,
     received: dict[str, Received],
-) -> None:
-    """Write the snapshot of `version` atomically, keeping the previous latest one.
+    *,
+    base: str | None = None,
+) -> bool:
+    """Write the snapshot of `version` atomically, unless the file already holds it.
 
-    At most two snapshots are kept: `version` and the previous `latest`. When
-    `version` already is the latest, the other snapshot is kept instead.
+    `base` is the version installed before this one. Its snapshot is kept next
+    to `version` (at most two snapshots), so undoing the update finds its base
+    again even after an earlier undo. When `base` is `version` itself, the other
+    snapshot is kept. Returns whether the file was written.
     """
-    snapshots: dict[str, dict[str, Received]] = {}
+    old: dict[str, dict[str, Received]] = {}
     top = _read_received_file(path)
     if top is not None and received_path(path.parent, deck_id, edition) == path:
         old = cast(dict[str, dict[str, Received]], top["snapshots"])
-        latest = top.get("latest")
-        keep = (
-            latest
-            if isinstance(latest, str) and latest != version
-            else next((v for v in old if v != version), None)
-        )
-        if keep is not None and keep in old:
-            snapshots[keep] = old[keep]
+    keep = base if base != version else next((v for v in old if v != version), None)
+    snapshots = {keep: old[keep]} if keep is not None and keep in old else {}
     snapshots[version] = received
+    if top is not None and top.get("latest") == version and old == snapshots:
+        return False
     payload = {
         "format": RECEIVED_FORMAT,
         "deck_id": deck_id,
@@ -374,11 +359,23 @@ def write_received(
         "latest": version,
         "snapshots": {v: _dump_received(r) for v, r in snapshots.items()},
     }
+    _atomic_write_json(path, payload, separators=(",", ":"))
+    return True
+
+
+def _atomic_write_json(
+    path: Path, payload: object, *, separators: tuple[str, str] | None = None
+) -> None:
+    """Write JSON through a temp file of the same folder, then replace.
+
+    The temp name does not start with `_`, so Anki's "Check Media" reports a
+    leftover one as unused instead of keeping it.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix="deckdock-tmp-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, ensure_ascii=False, separators=(",", ":"))
+            json.dump(payload, fh, ensure_ascii=False, separators=separators)
         _ = Path(tmp).replace(path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)

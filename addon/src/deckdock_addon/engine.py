@@ -80,6 +80,17 @@ class LocalState:
     root_deck_exists: bool
 
 
+def received_missing_plan(deck: CompiledDeck, sub: Subscription) -> Plan:
+    """Blocked plan: an installed subscription whose received fingerprints are missing.
+
+    Planning from nothing would recreate the notes the user deleted and never
+    retire anything, so nothing is planned until the file arrives.
+    """
+    names = {nt["id"]: nt["name"] for nt in deck["notetypes"]}
+    message = "The received fingerprints of this deck are missing on this computer."
+    return _blocked_plan(message, sub, names, RECEIVED_MISSING)
+
+
 # --- plan ---
 
 
@@ -135,6 +146,13 @@ class Plan:
     counts: Counts
     # Display names of the deck's notetypes by slug, for the summary.
     notetype_names: dict[str, str] = field(default_factory=dict[str, str])
+    # Why the plan is blocked when the summary has its own localized text for it.
+    blocked_code: str | None = None
+
+
+# The received fingerprints of an installed subscription are not on this computer
+# (the media folder file has not been synced yet, or is unusable).
+RECEIVED_MISSING = "received_missing"
 
 
 # --- media names ---
@@ -415,9 +433,12 @@ def _notetype_action(
     return NotetypeAction(slug, change, loc.anki_id, ())
 
 
-def _blocked_plan(message: str, sub: Subscription, names: dict[str, str]) -> Plan:
+def _blocked_plan(
+    message: str, sub: Subscription, names: dict[str, str], code: str | None = None
+) -> Plan:
     return Plan(
         blocked=message,
+        blocked_code=code,
         needs_full_sync_confirmation=False,
         notetype_actions=(),
         note_actions=(),
@@ -671,6 +692,10 @@ _TEXTS = {
             "Mise à jour refusée : changement de structure non pris en charge par "
             "cette version de DeckDock."
         ),
+        RECEIVED_MISSING: (
+            "Les données de suivi de ce deck ne sont pas encore arrivées sur cet "
+            "ordinateur. Synchronise Anki (médias compris), puis réessaie."
+        ),
         "templates": (
             "Les modèles de carte et le CSS des types de carte de ce deck sont "
             "remplacés par ceux du deck (tes modifications éventuelles sont écrasées)."
@@ -685,6 +710,10 @@ _TEXTS = {
         "nothing": "nothing to change",
         "blocked": (
             "Update refused: structure change not supported by this version of DeckDock."
+        ),
+        RECEIVED_MISSING: (
+            "This deck's tracking data has not reached this computer yet. Sync Anki "
+            "(including media), then try again."
         ),
         "templates": (
             "The card templates and CSS of this deck's note types are replaced by "
@@ -711,6 +740,8 @@ def summary_lines(plan: Plan, name: str, edition: str, lang: str) -> list[str]:
     labels = _FR if key == "fr" else _EN
     texts = _TEXTS[key]
     title = f"{name} ({edition})"
+    if plan.blocked_code is not None:
+        return [f"{title} — {texts[plan.blocked_code]}"]
     if plan.blocked is not None:
         return [f"{title} — {texts['blocked']}", plan.blocked]
 

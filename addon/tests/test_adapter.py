@@ -27,7 +27,13 @@ from deckdock_addon.adapter import (
     update_subscription,
     with_received,
 )
-from deckdock_addon.engine import DELETED_TAG, Plan, make_plan
+from deckdock_addon.engine import (
+    DELETED_TAG,
+    RECEIVED_MISSING,
+    Plan,
+    make_plan,
+    summary_lines,
+)
 from deckdock_addon.sources import SourceError, fetch_deck
 from deckdock_addon.store import (
     Subscription,
@@ -91,7 +97,12 @@ def must_note(col: Collection, guid: str) -> AnkiNote:
 
 def stored(col: Collection) -> tuple[Subscription, ...]:
     """The persisted subscriptions: config plus received file of the media folder."""
-    return tuple(with_received(col, s) for s in read_catalog(col).subscriptions)
+    out: list[Subscription] = []
+    for s in read_catalog(col).subscriptions:
+        loaded = with_received(col, s)
+        assert loaded is not None
+        out.append(loaded)
+    return tuple(out)
 
 
 def schema(col: Collection) -> int:
@@ -967,8 +978,8 @@ def test_received_write_failure_keeps_the_update(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    def fail(*args: object) -> None:
-        del args
+    def fail(*args: object, **kwargs: object) -> None:
+        del args, kwargs
         raise OSError("disk full")
 
     monkeypatch.setattr(adapter, "write_received", fail)
@@ -980,3 +991,73 @@ def test_received_write_failure_keeps_the_update(
     assert new_sub.installed_version == "1"
     assert not received_file(col).exists()
     assert "disk full" in caplog.text
+
+
+def test_missing_received_file_blocks_the_plan(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    _ = run(col, server, sub, profile_dir)
+    _ = col.remove_notes([must_note(col, "hw-cloze-1").id])
+    received_file(col).unlink()  # the config synced, the media not yet
+    deck = build_deck("2")
+    deck["notes"][1]["fields"]["Back"] = "chatte"
+    server.publish(deck)
+    (installed,) = read_catalog(col).subscriptions
+    assert installed.installed_version == "1"
+    mod, count = col.mod, col.note_count()
+
+    plan = preview_plan(col, deck, installed)
+    assert plan.blocked is not None
+    assert plan.blocked_code == RECEIVED_MISSING
+    assert not plan.note_actions
+    returned, held = run(col, server, installed, profile_dir)
+
+    assert held.blocked_code == RECEIVED_MISSING
+    assert returned == installed
+    assert (col.mod, col.note_count()) == (mod, count)
+    assert note_by_guid(col, "hw-cloze-1") is None
+    assert must_note(col, "hw-reversed-1")["Back"] == "chat"
+    assert not received_file(col).exists()
+    fr = (
+        "Hello World (en) — Les données de suivi de ce deck ne sont pas encore "
+        "arrivées sur cet ordinateur. Synchronise Anki (médias compris), puis "
+        "réessaie."
+    )
+    en = (
+        "Hello World (en) — This deck's tracking data has not reached this "
+        "computer yet. Sync Anki (including media), then try again."
+    )
+    assert summary_lines(held, "Hello World", "en", "fr") == [fr]
+    assert summary_lines(held, "Hello World", "en", "en") == [en]
+
+
+def test_double_undo_keeps_the_base_snapshot(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    _ = run(col, server, sub, profile_dir)
+    v2 = build_deck("2")
+    v2["notes"][1]["fields"]["Back"] = "chatte"
+    server.publish(v2)
+    (installed,) = read_catalog(col).subscriptions
+    _ = run(col, server, installed, profile_dir)
+    _ = col.undo()
+
+    v3 = build_deck("3")
+    v3["notes"][1]["fields"]["Back"] = "minou"
+    v3["notes"].append(basic_note("hw-basic-3", "three", "3"))
+    server.publish(v3)
+    (current,) = read_catalog(col).subscriptions
+    assert current.installed_version == "1"
+    _, applied = run(col, server, current, profile_dir)
+    assert (applied.counts.created, applied.counts.updated) == (1, 1)
+    _ = col.undo()
+
+    (current,) = read_catalog(col).subscriptions
+    assert current.installed_version == "1"
+    assert note_by_guid(col, "hw-basic-3") is None
+    again = preview_plan(col, v3, current)
+    assert again.skipped == ()
+    assert (again.counts.created, again.counts.updated) == (1, 1)
+    _ = run(col, server, current, profile_dir)
+    assert must_note(col, "hw-reversed-1")["Back"] == "minou"
+    assert must_note(col, "hw-basic-3")["Front"] == "three"

@@ -175,7 +175,7 @@ def test_received_path(tmp_path: Path) -> None:
 
 def test_received_round_trip_and_file_format(tmp_path: Path) -> None:
     path = store.received_path(tmp_path, "deck-1", "fr")
-    store.write_received(path, "deck-1", "fr", "v1", R1)
+    assert store.write_received(path, "deck-1", "fr", "v1", R1)
     assert store.read_received(path, "v1") == R1
     text = path.read_text(encoding="utf-8")
     assert "é" in text and ", " not in text and ": " not in text
@@ -191,60 +191,87 @@ def test_received_round_trip_and_file_format(tmp_path: Path) -> None:
     assert [p.name for p in tmp_path.iterdir()] == [path.name]
 
 
-def test_received_keeps_two_snapshots(tmp_path: Path) -> None:
+def test_received_temp_file_is_not_kept_by_check_media(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     path = store.received_path(tmp_path, "deck-1", "fr")
-    store.write_received(path, "deck-1", "fr", "v1", R1)
-    store.write_received(path, "deck-1", "fr", "v2", R2)
+    seen: list[str] = []
+    real = Path.replace
+
+    def spy(self: Path, target: Path) -> Path:
+        seen.append(self.name)
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "replace", spy)
+    _ = store.write_received(path, "deck-1", "fr", "v1", R1)
+    assert len(seen) == 1 and not seen[0].startswith("_")
+
+
+def test_received_keeps_the_base_snapshot(tmp_path: Path) -> None:
+    path = store.received_path(tmp_path, "deck-1", "fr")
+
+    def versions() -> set[str]:
+        return set(json.loads(path.read_text(encoding="utf-8"))["snapshots"])
+
+    _ = store.write_received(path, "deck-1", "fr", "v1", R1)
+    _ = store.write_received(path, "deck-1", "fr", "v2", R2, base="v1")
     assert store.read_received(path, "v1") == R1
     assert store.read_received(path, "v2") == R2
-    store.write_received(path, "deck-1", "fr", "v3", R3)
-    data = json.loads(path.read_text(encoding="utf-8"))
-    assert data["latest"] == "v3"
-    assert set(data["snapshots"]) == {"v2", "v3"}
-    # Rewriting the latest version keeps the previous snapshot.
-    store.write_received(path, "deck-1", "fr", "v3", R1)
-    data = json.loads(path.read_text(encoding="utf-8"))
-    assert set(data["snapshots"]) == {"v2", "v3"}
-    assert store.read_received(path, "v3") == R1
+    # After an undo of v2 the base is v1 again: v1 is kept, not the latest v2.
+    _ = store.write_received(path, "deck-1", "fr", "v3", R3, base="v1")
+    assert versions() == {"v1", "v3"}
+    assert json.loads(path.read_text(encoding="utf-8"))["latest"] == "v3"
+    _ = store.write_received(path, "deck-1", "fr", "v4", R2, base="v3")
+    assert versions() == {"v3", "v4"}
+    # Rewriting the base version itself keeps the other snapshot.
+    _ = store.write_received(path, "deck-1", "fr", "v4", R1, base="v4")
+    assert versions() == {"v3", "v4"}
+    assert store.read_received(path, "v4") == R1
+    # A base that is not in the file keeps nothing else.
+    _ = store.write_received(path, "deck-1", "fr", "v5", R1, base="gone")
+    assert versions() == {"v5"}
 
 
-def test_received_snapshot_is(tmp_path: Path) -> None:
+def test_received_unchanged_is_not_rewritten(tmp_path: Path) -> None:
     path = store.received_path(tmp_path, "deck-1", "fr")
-    assert not store.received_snapshot_is(path, "v1", {})
-    store.write_received(path, "deck-1", "fr", "v1", R1)
-    assert store.received_snapshot_is(path, "v1", R1)
-    assert not store.received_snapshot_is(path, "v1", R2)
-    store.write_received(path, "deck-1", "fr", "v2", R1)
-    assert not store.received_snapshot_is(path, "v1", R1)
-    assert store.received_snapshot_is(path, "v2", R1)
+    assert store.write_received(path, "deck-1", "fr", "v1", R1)
+    assert store.write_received(path, "deck-1", "fr", "v2", R2, base="v1")
+    before = (path.stat().st_mtime_ns, path.read_bytes())
+    assert not store.write_received(path, "deck-1", "fr", "v2", R2, base="v1")
+    assert (path.stat().st_mtime_ns, path.read_bytes()) == before
+    assert store.write_received(path, "deck-1", "fr", "v2", R1, base="v1")
 
 
-def test_received_falls_back_to_latest_then_empty(tmp_path: Path) -> None:
+def test_received_fresh_missing_and_fallback(tmp_path: Path) -> None:
     path = store.received_path(tmp_path, "deck-1", "fr")
+    assert store.read_received(path, None) == {}
+    assert store.read_received(path, "v1") is None
+    _ = store.write_received(path, "deck-1", "fr", "v1", {})
     assert store.read_received(path, "v1") == {}
-    store.write_received(path, "deck-1", "fr", "v1", R1)
-    store.write_received(path, "deck-1", "fr", "v2", R2)
+    _ = store.write_received(path, "deck-1", "fr", "v2", R2, base="v1")
     assert store.read_received(path, "v9") == R2
     assert store.read_received(path, None) == {}
     data = json.loads(path.read_text(encoding="utf-8"))
     data["latest"] = "gone"
     _ = path.write_text(json.dumps(data), encoding="utf-8")
-    assert store.read_received(path, "v9") == {}
+    assert store.read_received(path, "v9") is None
+    assert store.read_received(path, "v1") == {}
 
 
-def test_received_tolerates_bad_files(tmp_path: Path) -> None:
+def test_received_unusable_files_read_as_none(tmp_path: Path) -> None:
     path = store.received_path(tmp_path, "deck-1", "fr")
-    store.write_received(path, "deck-1", "fr", "v1", R1)
+    _ = store.write_received(path, "deck-1", "fr", "v1", R1)
     good = json.loads(path.read_text(encoding="utf-8"))
 
     def check(payload: object) -> None:
         _ = path.write_text(json.dumps(payload), encoding="utf-8")
-        assert store.read_received(path, "v1") == {}
+        assert store.read_received(path, "v1") is None
+        assert store.read_received(path, None) == {}
 
     _ = path.write_text("{not json", encoding="utf-8")
-    assert store.read_received(path, "v1") == {}
+    assert store.read_received(path, "v1") is None
     _ = path.write_bytes(b"\xff\xfe")
-    assert store.read_received(path, "v1") == {}
+    assert store.read_received(path, "v1") is None
     check([1])
     check({**good, "format": "deckdock-received/2"})
     check({**good, "deck_id": "other"})
@@ -255,4 +282,4 @@ def test_received_tolerates_bad_files(tmp_path: Path) -> None:
     check({**good, "snapshots": {"v1": {"g1": {"fingerprint": "a"}}}})
     path.unlink()
     path.mkdir()
-    assert store.read_received(path, "v1") == {}
+    assert store.read_received(path, "v1") is None
