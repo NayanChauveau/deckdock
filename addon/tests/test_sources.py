@@ -1,9 +1,10 @@
 import hashlib
+import http.client
 import io
 import json
 from collections.abc import Callable
 from email.message import Message
-from typing import cast
+from typing import cast, override
 from urllib.error import HTTPError
 from urllib.request import Request
 
@@ -411,3 +412,34 @@ def test_transport_status_mapping() -> None:
 
 def test_module_exposes_transport_alias() -> None:
     assert sources.Transport is not None
+
+
+class BrokenBody(FakeHttpResponse):
+    @override
+    def read(self, size: int = -1) -> bytes:
+        raise http.client.IncompleteRead(b"par", 10)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        lambda: BrokenBody(200, {}),
+        lambda: http.client.InvalidURL("control characters"),
+        lambda: http.client.BadStatusLine("garbage"),
+        lambda: UnicodeEncodeError("latin-1", "é\u4e2d", 1, 2, "bad"),
+    ],
+)
+def test_transport_maps_protocol_errors_to_http_error(
+    failure: Callable[[], object],
+) -> None:
+    opener = FakeOpener({"https://a.test/x": failure})
+    with pytest.raises(SourceError) as exc:
+        _ = urllib_transport("https://a.test/x", {}, 100, opener=opener)
+    assert exc.value.code == "http_error"
+
+
+def test_deeply_nested_json_is_invalid_json() -> None:
+    body = b"[" * 200_000 + b"]" * 200_000
+    with pytest.raises(SourceError) as exc:
+        _ = fetch_deck(RAW, etag=None, transport=FakeTransport(Response(200, {}, body)))
+    assert exc.value.code == "invalid_json"

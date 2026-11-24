@@ -7,6 +7,7 @@ byte cap, so a hostile server cannot make the add-on buffer an unbounded body.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import re
 from collections.abc import Callable, Mapping
@@ -188,7 +189,7 @@ def urllib_transport(
             response = opener(request)
         except HTTPError as exc:
             response = cast(RawResponse, cast(object, exc))
-        except (URLError, OSError) as exc:
+        except (URLError, OSError, http.client.HTTPException, ValueError) as exc:
             raise SourceError("http_error", str(exc)) from exc
         try:
             status = response.status
@@ -209,7 +210,7 @@ def urllib_transport(
                 raise SourceError("too_large")
             try:
                 body = _read_capped(response, max_bytes)
-            except OSError as exc:
+            except (OSError, http.client.HTTPException, ValueError) as exc:
                 raise SourceError("http_error", str(exc)) from exc
             return Response(status, response_headers, body)
         finally:
@@ -234,7 +235,7 @@ def _get(
 def _json_object(body: bytes, what: str) -> dict[str, object]:
     try:
         data = cast(object, json.loads(body.decode("utf-8")))
-    except (UnicodeDecodeError, ValueError) as exc:
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise SourceError("invalid_json", f"{what}: {exc}") from exc
     if not isinstance(data, dict):
         raise SourceError("invalid_json", f"{what}: expected a JSON object")
