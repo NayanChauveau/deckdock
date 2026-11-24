@@ -13,6 +13,7 @@ dev = [
     "basedpyright",
     "anki==26.9.4",
     "deckdock",
+    "aqt==26.9.4",
 ]
 
 [build-system]
