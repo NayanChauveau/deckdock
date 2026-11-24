@@ -587,6 +587,7 @@ class _Applier:
         return replace(
             self.sub,
             installed_version=self.deck["deck"]["version"],
+            last_error=None,
             notetype_ids=self.ids,
             root_deck_anki_id=self.root
             if self.root is not None
@@ -684,6 +685,9 @@ def apply_plan(
     collection config within the same undo entry) and the notes skipped at apply
     time because their GUID was taken by another note (`foreign_note`).
 
+    The returned subscription's `last_error` is `RECEIVED_WRITE_FAILED` when
+    the received file could not be written after the apply.
+
     Raises `ApplyRefusedError` (nothing written) when the plan cannot be applied
     safely, and `PartialApplyError` when a step failed and could not be undone.
     A plan with nothing to change in the collection only updates the stored
@@ -694,7 +698,8 @@ def apply_plan(
     if plan.needs_full_sync_confirmation and not confirmed_full_sync:
         raise ValueError("this plan needs the user to confirm a full sync")
     new_sub, extra = _Applier(col, deck, sub, plan).run(undo_label)
-    _write_received(col, new_sub, base=sub.installed_version)
+    if not _write_received(col, new_sub, base=sub.installed_version):
+        new_sub = replace(new_sub, last_error=RECEIVED_WRITE_FAILED)
     return new_sub, extra
 
 
@@ -716,14 +721,19 @@ def with_received(col: Collection, sub: Subscription) -> Subscription | None:
     return None if received is None else replace(sub, received=received)
 
 
-def _write_received(col: Collection, sub: Subscription, *, base: str | None) -> None:
+RECEIVED_WRITE_FAILED = "received_write_failed"
+
+
+def _write_received(col: Collection, sub: Subscription, *, base: str | None) -> bool:
     """Record the received fingerprints of the applied version, unless already there.
 
     `base` is the version installed before the apply; its snapshot is kept for
-    an undo. A failure is only logged: the update itself is applied and persisted.
+    an undo. Returns False when the file could not be written: the update itself
+    is applied and persisted, the error is logged, and `apply_plan` reports it
+    as `last_error` (`RECEIVED_WRITE_FAILED`), since the next plans lack it.
     """
     if sub.installed_version is None:
-        return
+        return True
     path = _received_file(col, sub)
     try:
         _ = write_received(
@@ -737,6 +747,8 @@ def _write_received(col: Collection, sub: Subscription, *, base: str | None) -> 
         )
     except OSError as error:
         _log.warning("DeckDock: could not write %s: %s", path, error)
+        return False
+    return True
 
 
 # --- full pipeline -----------------------------------------------------------------

@@ -999,6 +999,7 @@ def test_received_write_failure_keeps_the_update(
     assert plan.counts.created == 3
     assert col.note_count() == 3
     assert new_sub.installed_version == "1"
+    assert new_sub.last_error == adapter.RECEIVED_WRITE_FAILED
     assert not received_file(col).exists()
     assert "disk full" in caplog.text
 
@@ -1172,7 +1173,7 @@ def test_download_needs_no_collection_and_apply_no_network(
     requests = len(server.requests)
     updated, plan = adapter.apply_download(
         col,
-        installed,
+        replace(installed, last_error="http_error"),
         download,
         profile_dir=profile_dir,
         confirmed_full_sync=False,
@@ -1182,6 +1183,7 @@ def test_download_needs_no_collection_and_apply_no_network(
     assert plan.counts.created == 1
     assert updated.installed_version == "2"
     assert updated.etag == download.etag
+    assert updated.last_error is None
     local = updated.media["h.png"].local_name
     assert (Path(col.media.dir()) / local).read_bytes() == blue
 

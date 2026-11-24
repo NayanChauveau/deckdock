@@ -185,7 +185,7 @@ def test_held_message() -> None:
 
 def test_record_apply_keeps_the_check_state_of_the_applied_version() -> None:
     before = _sub(installed_version="v1", available_version="v2", last_error="x")
-    applied = replace(before, installed_version="v3", etag="e3")
+    applied = replace(before, installed_version="v3", etag="e3", last_error=None)
     out = ui.record_apply(before, applied, "T")
     assert (out.etag, out.available_version, out.last_error, out.last_checked_at) == (
         "e3",
@@ -194,3 +194,19 @@ def test_record_apply_keeps_the_check_state_of_the_applied_version() -> None:
         "T",
     )
     assert out.installed_version == "v1"  # the synced part comes from the config
+
+
+def test_received_write_failure_stays_visible_until_an_apply_succeeds() -> None:
+    before = _sub(installed_version="v1")
+    failed = replace(before, installed_version="v2", last_error="received_write_failed")
+    recorded = ui.record_apply(before, failed, "T")
+    assert recorded.last_error == "received_write_failed"
+    deck = build_deck()
+    checked = ui.apply_check(recorded, FetchedDeck(deck, "e"), "T2")
+    assert checked.last_error == "received_write_failed"
+    assert ui.apply_check(recorded, None, "T2").last_error == "received_write_failed"
+    # It matters more than a network error: that one only delays a check.
+    failed_check = ui.apply_check(recorded, SourceError("http_error"), "T2")
+    assert failed_check.last_error == "received_write_failed"
+    fixed = ui.record_apply(recorded, replace(failed, last_error=None), "T3")
+    assert fixed.last_error is None

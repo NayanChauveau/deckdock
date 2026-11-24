@@ -52,6 +52,7 @@ from aqt.utils import (
 
 from deckdock_addon import strings
 from deckdock_addon.adapter import (
+    RECEIVED_WRITE_FAILED,
     ApplyRefusedError,
     Download,
     PartialApplyError,
@@ -152,15 +153,20 @@ def pending_updates(subs: Sequence[Subscription]) -> list[Subscription]:
 def apply_check(
     sub: Subscription, outcome: CheckOutcome, checked_at: str
 ) -> Subscription:
-    """Record the result of a check; nothing is applied to the collection."""
+    """Record the result of a check; nothing is applied to the collection.
+
+    A failed write of the received file stays shown until an apply succeeds:
+    a check cannot fix it, and it blocks the next updates.
+    """
+    sticky = sub.last_error if sub.last_error == RECEIVED_WRITE_FAILED else None
     if isinstance(outcome, SourceError):
-        return replace(sub, last_error=outcome.code)
+        return replace(sub, last_error=sticky or outcome.code)
     if outcome is None:  # HTTP 304: the ETag still matches
-        return replace(sub, last_error=None, last_checked_at=checked_at)
+        return replace(sub, last_error=sticky, last_checked_at=checked_at)
     return replace(
         sub,
         etag=outcome.etag,
-        last_error=None,
+        last_error=sticky,
         last_checked_at=checked_at,
         available_version=outcome.deck["deck"]["version"],
     )
@@ -172,13 +178,14 @@ def record_apply(
     """The local check state after a successful apply of `applied`.
 
     The version just applied is the version seen on the server, so undoing the
-    apply shows the update as available again.
+    apply shows the update as available again. `applied.last_error` reports a
+    received file that could not be written.
     """
     return replace(
         sub,
         etag=applied.etag,
         available_version=applied.installed_version,
-        last_error=None,
+        last_error=applied.last_error,
         last_checked_at=checked_at,
     )
 

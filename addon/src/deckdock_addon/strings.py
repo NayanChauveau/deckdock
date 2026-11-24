@@ -86,6 +86,12 @@ FR: dict[str, str] = {
         "La mise à jour a été appliquée en partie et n'a pas pu être annulée. "
         "Relancez Vérifier puis Appliquer pour la terminer."
     ),
+    "ERR_received_write_failed": (
+        "Mise à jour appliquée, mais les données de suivi n'ont pas pu être "
+        "enregistrées dans le dossier des médias (disque plein ou dossier protégé ?). "
+        "Les prochaines mises à jour de ce deck resteront bloquées tant qu'elles "
+        "manquent."
+    ),
     "SKIP_modified_locally": "modifiée par toi",
     "SKIP_deleted_locally": "supprimée par toi",
     "SKIP_foreign_note": "déjà présente ailleurs",
@@ -171,6 +177,11 @@ EN: dict[str, str] = {
     "ERR_partial_apply": (
         "The update was partially applied and could not be undone. "
         "Run Check then Apply again to finish it."
+    ),
+    "ERR_received_write_failed": (
+        "Update applied, but the tracking data could not be saved in the media "
+        "folder (disk full or protected folder?). The next updates of this deck "
+        "stay blocked while it is missing."
     ),
     "SKIP_modified_locally": "modified by you",
     "SKIP_deleted_locally": "deleted by you",
