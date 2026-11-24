@@ -220,3 +220,80 @@ def test_cli_validate_defaults_to_cwd(
     monkeypatch.chdir(make_project({"cards/a.yaml": "cards:\n" + basic()}))
     assert main(["validate"]) == 0
     assert capsys.readouterr().err == ""
+
+
+def _front(front: str) -> str:
+    return f'cards:\n  - id: a\n    type: basic\n    front: "{front}"\n    back: y\n'
+
+
+def test_reference_style_image_traversal_rejected(make_project: MakeProject):
+    root = make_project(
+        {
+            "cards/a.yaml": _front("![x][r]\\n\\n[r]: media/../secret.txt"),
+            "secret.txt": "s",
+        }
+    )
+    assert messages(root) == [
+        "cards/a.yaml:2: media must live in media/ (got 'media/../secret.txt')"
+    ]
+
+
+def test_reference_style_missing_target(make_project: MakeProject):
+    root = make_project({"cards/a.yaml": _front("![x][r]\\n\\n[r]: media/nope.png")})
+    assert messages(root) == ["cards/a.yaml:2: missing media file 'media/nope.png'"]
+
+
+def test_html_src_outside_media_rejected(make_project: MakeProject):
+    root = make_project(
+        {"cards/a.yaml": _front("<img src='img/a.png'>"), "img/a.png": b"x"}
+    )
+    assert messages(root) == [
+        "cards/a.yaml:2: media must live in media/ (got 'img/a.png')"
+    ]
+
+
+def test_symlink_escaping_media_rejected(
+    make_project: MakeProject, tmp_path_factory: pytest.TempPathFactory
+):
+    outside = tmp_path_factory.mktemp("outside") / "secret.png"
+    _ = outside.write_bytes(b"secret")
+    root = make_project(
+        {"cards/a.yaml": _front("![x](media/link.png)"), "inside.png": b"x"}
+    )
+    (root / "media").mkdir()
+    (root / "media" / "link.png").symlink_to(outside)
+    assert messages(root) == [
+        "cards/a.yaml:2: media file 'media/link.png' resolves outside media/"
+    ]
+    (root / "media" / "link.png").unlink()
+    (root / "media" / "link.png").symlink_to(root / "inside.png")
+    assert messages(root) == [
+        "cards/a.yaml:2: media file 'media/link.png' resolves outside media/"
+    ]
+
+
+def test_symlinked_media_dir_outside_project_rejected(
+    make_project: MakeProject, tmp_path_factory: pytest.TempPathFactory
+):
+    outside = tmp_path_factory.mktemp("elsewhere")
+    _ = (outside / "x.png").write_bytes(b"x")
+    root = make_project({"cards/a.yaml": _front("![x](media/x.png)")})
+    (root / "media").symlink_to(outside)
+    assert messages(root) == [
+        "cards/a.yaml:2: media file 'media/x.png' resolves outside media/"
+    ]
+
+
+def test_symlink_inside_media_accepted(make_project: MakeProject):
+    root = make_project(
+        {"cards/a.yaml": _front("![x](media/link.png)"), "media/real.png": b"x"}
+    )
+    (root / "media" / "link.png").symlink_to("real.png")
+    assert messages(root) == []
+
+
+def test_media_directory_is_not_a_file(make_project: MakeProject):
+    root = make_project(
+        {"cards/a.yaml": _front("![x](media/dir)"), "media/dir/x.png": b"x"}
+    )
+    assert messages(root) == ["cards/a.yaml:2: missing media file 'media/dir'"]

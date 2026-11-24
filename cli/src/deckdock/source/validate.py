@@ -2,8 +2,9 @@
 
 import re
 from collections.abc import Iterator
-from urllib.parse import unquote
 
+from deckdock.build.markdown import render
+from deckdock.build.media import media_problem
 from deckdock.format import SLUG_RE
 from deckdock.issues import Issue
 from deckdock.source.load import CONFIG_FILE
@@ -17,8 +18,6 @@ from deckdock.source.models import (
 )
 
 _CLOZE = re.compile(r"\{\{c\d+::.+?\}\}", re.DOTALL)
-_MD_IMAGE = re.compile(r"!\[[^\]]*\]\(\s*(?:<([^>]*)>|([^)\s]*))")
-_HTML_SRC = re.compile(r"""\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')""", re.IGNORECASE)
 
 
 def validate_project(project: Project) -> list[Issue]:
@@ -82,8 +81,10 @@ def _content_issues(content: Content, project: Project) -> list[str]:
             messages.append(
                 "mcq must have at least 2 choices and exactly one correct choice"
             )
-    for ref in dict.fromkeys(_media_refs(content)):
-        messages.extend(_media_issues(ref, project))
+    for ref in _media_refs(content):
+        problem = media_problem(project.root, ref)
+        if problem is not None:
+            messages.append(problem)
     return messages
 
 
@@ -95,23 +96,9 @@ def _texts(content: Content) -> list[str]:
     return [content.question, content.explanation, *(c.text for c in content.choices)]
 
 
-def _media_refs(content: Content) -> Iterator[str]:
-    """Local media references: Markdown images and HTML src attributes."""
+def _media_refs(content: Content) -> list[str]:
+    """Local references, collected by the same renderer the builder uses."""
+    refs: set[str] = set()
     for text in _texts(content):
-        for match in _MD_IMAGE.finditer(text):
-            yield from _local(match.group(1) or match.group(2))
-        for match in _HTML_SRC.finditer(text):
-            yield from _local(match.group(1) or match.group(2))
-
-
-def _local(ref: str | None) -> Iterator[str]:
-    if ref and "://" not in ref and not ref.startswith(("data:", "//")):
-        yield unquote(ref)
-
-
-def _media_issues(ref: str, project: Project) -> list[str]:
-    if not ref.startswith("media/") or ".." in ref.split("/"):
-        return [f"media must live in media/ (got '{ref}')"]
-    if not (project.root / ref).is_file():
-        return [f"missing media file '{ref}'"]
-    return []
+        refs |= render(text)[1]
+    return sorted(refs)

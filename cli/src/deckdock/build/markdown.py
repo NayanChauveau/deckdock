@@ -11,8 +11,10 @@ from markdown_it.renderer import RendererHTML
 from markdown_it.token import Token
 from markdown_it.utils import EnvType, OptionsDict
 
-MEDIA_PREFIX = "media/"
-_RAW_SRC = re.compile(r"""(\bsrc\s*=\s*)(["'])media/([^"']+)\2""", re.IGNORECASE)
+from deckdock.build.media import MEDIA_DIR, is_local
+
+MEDIA_PREFIX = MEDIA_DIR + "/"
+_RAW_SRC = re.compile(r"""(\bsrc\s*=\s*)(["'])([^"']*)\2""", re.IGNORECASE)
 
 
 def _basename(path: str) -> str:
@@ -20,7 +22,7 @@ def _basename(path: str) -> str:
 
 
 class _MediaRenderer(RendererHTML):
-    """HTML renderer that rewrites media/ image sources to bare file names."""
+    """HTML renderer that collects local image sources and rewrites media/ ones to bare file names."""
 
     @override
     def image(
@@ -32,9 +34,10 @@ class _MediaRenderer(RendererHTML):
     ) -> str:
         token = tokens[idx]
         path = unquote(str(token.attrs.get("src", "")))
-        if path.startswith(MEDIA_PREFIX):
+        if is_local(path):
             _media(env).add(path)
-            token.attrs["src"] = _basename(path)
+            if path.startswith(MEDIA_PREFIX):
+                token.attrs["src"] = _basename(path)
         return super().image(tokens, idx, options, env)
 
     @override
@@ -60,8 +63,12 @@ class _MediaRenderer(RendererHTML):
     @staticmethod
     def _raw(content: str, env: EnvType) -> str:
         def repl(match: re.Match[str]) -> str:
-            path = MEDIA_PREFIX + unquote(html_lib.unescape(match.group(3)))
+            path = unquote(html_lib.unescape(match.group(3)))
+            if not is_local(path):
+                return match.group(0)
             _media(env).add(path)
+            if not path.startswith(MEDIA_PREFIX):
+                return match.group(0)
             quote = match.group(2)
             return f"{match.group(1)}{quote}{html_lib.escape(_basename(path))}{quote}"
 
@@ -78,7 +85,7 @@ _RENDERER = _MediaRenderer(_MD)
 
 
 def render(text: str) -> tuple[str, set[str]]:
-    """Render Markdown to HTML; return it with the referenced media paths."""
+    """Render Markdown to HTML; return it with every local (non-URL) path it references."""
     env: EnvType = {"media": set()}
     tokens = _MD.parse(text, env)
     if [t.type for t in tokens] == ["paragraph_open", "inline", "paragraph_close"]:

@@ -10,7 +10,9 @@ from deckdock.build.builder import build, compile_edition
 from deckdock.cli import main
 from deckdock.format import check_dist
 from deckdock.guid import card_guid
+from deckdock.issues import Issue
 from deckdock.source.load import load_project
+from deckdock.source.models import Project
 
 MakeProject = Callable[[dict[str, str | bytes]], Path]
 
@@ -255,3 +257,62 @@ def test_rebuild_clears_previous_build(make_project: MakeProject, tmp_path: Path
     _ = (stale / "deck.json").write_text("{}")
     assert build(root, out, "v") == []
     assert not stale.exists()
+
+
+def _front_card(front: str) -> str:
+    return f'cards:\n  - id: a\n    type: basic\n    front: "{front}"\n    back: B\n'
+
+
+def test_reference_style_traversal_not_copied(
+    make_project: MakeProject, tmp_path: Path
+):
+    root = make_project(
+        {
+            "cards/a.yaml": _front_card("![x][r]\\n\\n[r]: media/../secret.txt"),
+            "secret.txt": "s",
+        }
+    )
+    out = tmp_path / "out"
+    issues = build(root, out, "v")
+    assert [i.message for i in issues] == [
+        "media must live in media/ (got 'media/../secret.txt')"
+    ]
+    assert not out.exists()
+
+
+@pytest.mark.parametrize(
+    ("front", "message"),
+    [
+        (
+            "![x][r]\\n\\n[r]: media/../secret.txt",
+            "media must live in media/ (got 'media/../secret.txt')",
+        ),
+        (
+            "![x](media/../secret.txt)",
+            "media must live in media/ (got 'media/../secret.txt')",
+        ),
+        ("![x][r]\\n\\n[r]: media/nope.png", "missing media file 'media/nope.png'"),
+        ("![x](media/link.png)", "media file 'media/link.png' resolves outside media/"),
+    ],
+)
+def test_builder_guards_media_even_without_validation(
+    make_project: MakeProject,
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    front: str,
+    message: str,
+):
+    outside = tmp_path_factory.mktemp("outside") / "secret.png"
+    _ = outside.write_bytes(b"secret")
+    root = make_project({"cards/a.yaml": _front_card(front), "secret.txt": "s"})
+    (root / "media").mkdir()
+    (root / "media" / "link.png").symlink_to(outside)
+
+    def no_validation(_project: Project) -> list[Issue]:
+        return []
+
+    monkeypatch.setattr("deckdock.build.builder.validate_project", no_validation)
+    out = tmp_path_factory.mktemp("build") / "out"
+    issues = build(root, out, "v")
+    assert {i.message for i in issues} == {message}
+    assert not out.exists()

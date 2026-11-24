@@ -7,6 +7,7 @@ from pathlib import Path
 
 from deckdock import __version__
 from deckdock.build.markdown import render
+from deckdock.build.media import media_problem
 from deckdock.build.notetypes import notetype_for
 from deckdock.format import FORMAT, check_dist
 from deckdock.guid import card_guid
@@ -166,11 +167,17 @@ def build(root: Path, out: Path, version: str) -> list[Issue]:
         return [Issue(str(out), "refusing to overwrite non-deckdock directory")]
 
     compiled: dict[str, tuple[JsonObject, dict[str, str]]] = {}
+    guarded: set[str] = set()
     for edition in project.config.editions:
         deck, paths = compile_edition(project, edition, version)
         if not deck["notes"]:
             issues.append(Issue(CONFIG_FILE, f"edition '{edition}' has no cards"))
             continue
+        for rel in sorted(paths - guarded):
+            problem = media_problem(root, rel)
+            if problem is not None:
+                issues.append(Issue(CONFIG_FILE, problem))
+        guarded |= paths
         plan, collisions = _media_plan(paths)
         issues.extend(collisions)
         compiled[edition] = (deck, plan)
