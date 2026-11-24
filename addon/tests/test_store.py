@@ -348,3 +348,15 @@ def test_received_file_with_a_bad_first_install_is_unusable(tmp_path: Path) -> N
         _ = path.write_text(json.dumps({**good, "first_install": bad}), "utf-8")
         assert store.read_received(path, "v1", "s1") is None
         assert store.read_received(path, None, "s2") == {}
+
+
+def test_read_latest_received(tmp_path: Path) -> None:
+    path = store.received_path(tmp_path, "deck-1", "fr")
+    assert store.read_latest_received(path) == {}
+    _ = store.write_received(path, "deck-1", "fr", "v1", R1, subscription="s1")
+    _ = store.write_received(
+        path, "deck-1", "fr", "v2", R2, subscription="s1", base="v1"
+    )
+    assert store.read_latest_received(path) == R2
+    _ = path.write_text("{broken", encoding="utf-8")
+    assert store.read_latest_received(path) == {}

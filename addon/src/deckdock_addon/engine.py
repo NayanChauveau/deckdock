@@ -460,8 +460,10 @@ class _Builder:
         local: LocalState,
         mapped: dict[str, int | None],
         changed_media: set[str],
+        latest: dict[str, Received],
     ) -> None:
         self.sub: Subscription = sub
+        self.latest: dict[str, Received] = latest
         self.local: LocalState = local
         self.mapped: dict[str, int | None] = mapped
         self.changed_media: set[str] = changed_media
@@ -505,7 +507,19 @@ class _Builder:
         same_notetype = loc.notetype_anki_id == self.mapped.get(n["notetype"])
 
         if prev is not None:
-            if not same_notetype or fingerprint(local_fields) != prev.fingerprint:
+            local_fp = fingerprint(local_fields)
+            alt = self.latest.get(guid)
+            if (
+                same_notetype
+                and local_fp != prev.fingerprint
+                and alt is not None
+                and alt.fingerprint == local_fp
+            ):
+                # The note holds what the received file's latest snapshot
+                # recorded (applied elsewhere, while this catalog says an older
+                # version): unmodified, with that entry as its base.
+                prev = alt
+            if not same_notetype or local_fp != prev.fingerprint:
                 self._skip(guid, "modified_locally", loc.fields, (), prev)
                 return
             tags_changed = set(deck_tags) != set(prev.tags) or DELETED_TAG in loc.tags
@@ -576,7 +590,18 @@ class _Builder:
             self.received[guid] = prev
 
 
-def make_plan(deck: CompiledDeck, sub: Subscription, local: LocalState) -> Plan:
+def make_plan(
+    deck: CompiledDeck,
+    sub: Subscription,
+    local: LocalState,
+    latest: dict[str, Received] | None = None,
+) -> Plan:
+    """The plan for `deck`, from `sub.received` (the installed version's snapshot).
+
+    `latest` is the received file's latest snapshot. A note whose fields differ
+    from its installed entry but match its `latest` entry is not reported as
+    modified: the catalog lags behind an apply made on another computer.
+    """
     names = {nt["id"]: nt["name"] for nt in deck["notetypes"]}
     resolved = {nt["id"]: _resolve_notetype(nt, sub, local) for nt in deck["notetypes"]}
 
@@ -609,7 +634,7 @@ def make_plan(deck: CompiledDeck, sub: Subscription, local: LocalState) -> Plan:
     }
     field_orders = {nt["id"]: tuple(nt["fields"]) for nt in deck["notetypes"]}
 
-    builder = _Builder(sub, local, mapped, changed)
+    builder = _Builder(sub, local, mapped, changed, latest or {})
     deck_guids: set[str] = set()
     for n in deck["notes"]:
         deck_guids.add(n["guid"])

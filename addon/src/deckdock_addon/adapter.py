@@ -56,6 +56,7 @@ from deckdock_addon.store import (
     full_versions_path,
     read_catalog,
     read_full_versions,
+    read_latest_received,
     read_received,
     received_path,
     write_full_versions,
@@ -801,7 +802,8 @@ def _plan(
     if loaded is None:
         return sub, received_missing_plan(deck, sub)
     base = adopt_notetypes(col, deck, loaded, exclude)
-    return base, make_plan(deck, base, read_local_state(col, deck, base))
+    latest = read_latest_received(_received_file(col, sub))
+    return base, make_plan(deck, base, read_local_state(col, deck, base), latest)
 
 
 def _prepare(

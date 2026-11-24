@@ -316,6 +316,14 @@ def _read_received_file(path: Path) -> dict[str, object] | None:
     return top
 
 
+def _latest_snapshot(top: dict[str, object]) -> dict[str, Received] | None:
+    snapshots = cast(dict[str, dict[str, Received]], top["snapshots"])
+    latest = top.get("latest")
+    return (
+        snapshots[latest] if isinstance(latest, str) and latest in snapshots else None
+    )
+
+
 def read_received(
     path: Path, installed_version: str | None, subscription_id: str
 ) -> dict[str, Received] | None:
@@ -336,20 +344,21 @@ def read_received(
     if top is None:
         return {} if installed_version is None else None
     snapshots = cast(dict[str, dict[str, Received]], top["snapshots"])
-    latest = top.get("latest")
     if installed_version is None:
         first = cast(dict[str, str | None] | None, top["first_install"])
         if first is not None and first["subscription"] == subscription_id:
             start = first["base"]
             return snapshots[start] if start is not None and start in snapshots else {}
-        return (
-            snapshots[latest] if isinstance(latest, str) and latest in snapshots else {}
-        )
+        return _latest_snapshot(top) or {}
     if installed_version in snapshots:
         return snapshots[installed_version]
-    if isinstance(latest, str) and latest in snapshots:
-        return snapshots[latest]
-    return None
+    return _latest_snapshot(top)
+
+
+def read_latest_received(path: Path) -> dict[str, Received]:
+    """The latest snapshot of the received file, or `{}` when it is unusable."""
+    top = _read_received_file(path)
+    return {} if top is None else _latest_snapshot(top) or {}
 
 
 def write_received(

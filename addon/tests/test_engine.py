@@ -757,3 +757,47 @@ def test_media_rewrite_round_trip_non_canonical_spellings() -> None:
         )
         assert nxt.note_actions == ()
         assert nxt.skipped == ()
+
+
+# --- received file `latest` snapshot tolerance (I-3 b) ---
+
+
+def test_note_matching_the_latest_snapshot_is_unmodified() -> None:
+    # The installed snapshot says v1 ("a"), but the note holds what the latest
+    # snapshot recorded ("b", applied on another computer).
+    plan = make_plan(
+        make_deck([note("g1", back="c", tags=("new",))]),
+        make_sub({"g1": rec(back="a", tags=("old",))}),
+        local_state([local_note("g1", back="b", tags=("v2", "mine"), note_id=7)]),
+        latest={"g1": rec(back="b", tags=("v2",))},
+    )
+    a = only_action(plan)
+    assert (a.kind, a.note_id, a.fields) == ("update", 7, {"Front": "q", "Back": "c"})
+    assert a.tags == ("mine", "new")  # the tags received with "b" are replaced
+    assert plan.skipped == ()
+    assert plan.new_received == {"g1": rec(back="c", tags=("new",))}
+
+
+def test_note_matching_the_latest_snapshot_unchanged_keeps_that_entry() -> None:
+    latest = rec(back="b", tags=("v2",))
+    plan = make_plan(
+        make_deck([note("g1", back="b", tags=("v2",))]),
+        make_sub({"g1": rec(back="a")}),
+        local_state([local_note("g1", back="b", tags=("v2",))]),
+        latest={"g1": latest},
+    )
+    assert plan.note_actions == ()
+    assert plan.skipped == ()
+    assert plan.new_received == {"g1": latest}
+
+
+def test_note_matching_neither_snapshot_is_modified_locally() -> None:
+    plan = make_plan(
+        make_deck([note("g1", back="c")]),
+        make_sub({"g1": rec(back="a")}),
+        local_state([local_note("g1", back="mine")]),
+        latest={"g1": rec(back="b")},
+    )
+    assert plan.note_actions == ()
+    assert only_skip(plan).reason == "modified_locally"
+    assert plan.new_received == {"g1": rec(back="a")}
