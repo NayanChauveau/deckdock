@@ -1,4 +1,5 @@
 import importlib.util
+import shutil
 import tomllib
 import zipfile
 from collections.abc import Callable
@@ -26,27 +27,21 @@ def test_package_contains_addon_files_only(tmp_path: Path) -> None:
     )
     version = project["version"]
 
-    # Stray files that must never end up in the package.
-    pkg = ROOT / "src" / "deckdock_addon"
-    stray = [
+    # Stray files that must never end up in the package, in a copy of the
+    # source tree (never in the real one).
+    pkg = tmp_path / "deckdock_addon"
+    _ = shutil.copytree(ROOT / "src" / "deckdock_addon", pkg)
+    for path in (
         pkg / "meta.json",
         pkg / "_deckdock_tmp.json",
         pkg / "stray.pyc",
         pkg / "tests" / "test_x.py",
         pkg / ".venv" / "pyvenv.cfg",
-    ]
-    try:
-        for path in stray:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            _ = path.write_text("x")
-        build = cast(Callable[[Path], Path], getattr(script, "build"))  # noqa: B009
-        out = build(tmp_path)
-    finally:
-        for path in stray:
-            path.unlink(missing_ok=True)
-        for directory in (pkg / "tests", pkg / ".venv"):
-            if directory.is_dir():
-                directory.rmdir()
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _ = path.write_text("x")
+    build = cast(Callable[..., Path], getattr(script, "build"))  # noqa: B009
+    out = build(tmp_path / "dist", package=pkg)
 
     assert out.name == f"deckdock-{version}.ankiaddon"
     with zipfile.ZipFile(out) as zf:
