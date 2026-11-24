@@ -4,6 +4,12 @@ The catalog is a versioned JSON object kept in the Anki collection config (so it
 syncs through AnkiWeb). Only `read_catalog` / `write_catalog` touch the
 collection, through a duck-typed object; this module imports neither `anki` nor
 `aqt`.
+
+The received fingerprints are too big for the collection config: they live in a
+`_deckdock_<deck_id>_<edition>.json` file of the media folder, which AnkiWeb
+media sync copies to the other computers and Anki's "Check Media" keeps (its
+name starts with `_`). The file holds one snapshot per installed version, so an
+undo that restores the previous `installed_version` also finds its snapshot.
 """
 
 # ruff: noqa: TRY004
@@ -22,6 +28,7 @@ from typing import Protocol, cast
 
 CONFIG_KEY = "deckdock"
 SCHEMA_VERSION = 1
+RECEIVED_FORMAT = "deckdock-received/1"
 
 
 class DuplicateSubscription(ValueError):
@@ -70,6 +77,8 @@ class Subscription:
     root_deck_anki_id: int | None = None
     notetype_ids: dict[str, int] = field(default_factory=dict[str, int])
     media: dict[str, MediaRecord] = field(default_factory=dict[str, MediaRecord])
+    # Kept in the media folder (`read_received` / `write_received`), never in the
+    # collection config.
     received: dict[str, Received] = field(default_factory=dict[str, Received])
 
 
@@ -80,6 +89,7 @@ class Catalog:
 
 _REQUIRED = ("id", "source_url", "base_url", "deck_id", "edition", "name")
 _KNOWN = {f.name for f in fields(Subscription)}
+_NOT_IN_CONFIG = "received"
 
 
 def dump_catalog(c: Catalog) -> dict[str, object]:
@@ -97,11 +107,8 @@ def _dump_subscription(s: Subscription) -> dict[str, object]:
                 k: {"sha256": m.sha256, "local_name": m.local_name}
                 for k, m in s.media.items()
             }
-        elif f.name == "received":
-            out["received"] = {
-                k: {"fingerprint": r.fingerprint, "tags": list(r.tags)}
-                for k, r in s.received.items()
-            }
+        elif f.name == _NOT_IN_CONFIG:
+            continue
         elif f.name == "notetype_ids":
             out["notetype_ids"] = dict(s.notetype_ids)
         else:
@@ -138,6 +145,7 @@ def _seq(v: object, code: str) -> list[object]:
 
 def _load_subscription(item: object) -> Subscription:
     raw = _obj(item, "subscription")
+    _ = raw.pop(_NOT_IN_CONFIG, None)
     if set(raw) - _KNOWN or any(k not in raw for k in _REQUIRED):
         raise ValueError("subscription")
     req = [_req_str(raw[k]) for k in _REQUIRED]
@@ -159,7 +167,6 @@ def _load_subscription(item: object) -> Subscription:
         root_deck_anki_id=root,
         notetype_ids=_load_notetype_ids(raw.get("notetype_ids", {})),
         media=_load_media(raw.get("media", {})),
-        received=_load_received(raw.get("received", {})),
     )
 
 
@@ -194,13 +201,23 @@ def _load_media(raw: object) -> dict[str, MediaRecord]:
 
 def _load_received(raw: object) -> dict[str, Received]:
     out: dict[str, Received] = {}
-    for k, v in _obj(raw, "subscription").items():
-        rec = _obj(v, "subscription")
+    for k, v in _obj(raw, "received").items():
+        rec = _obj(v, "received")
         if set(rec) != {"fingerprint", "tags"}:
-            raise ValueError("subscription")
-        tags = tuple(_req_str(t) for t in _seq(rec["tags"], "subscription"))
-        out[k] = Received(_req_str(rec["fingerprint"]), tags)
+            raise ValueError("received")
+        fp = rec["fingerprint"]
+        tags = _seq(rec["tags"], "received")
+        if not isinstance(fp, str) or not all(isinstance(t, str) for t in tags):
+            raise ValueError("received")
+        out[k] = Received(fp, tuple(cast(list[str], tags)))
     return out
+
+
+def _dump_received(received: dict[str, Received]) -> dict[str, object]:
+    return {
+        k: {"fingerprint": r.fingerprint, "tags": list(r.tags)}
+        for k, r in received.items()
+    }
 
 
 def add(c: Catalog, s: Subscription) -> Catalog:
@@ -265,6 +282,107 @@ def read_full_versions(path: Path) -> dict[str, dict[str, str]]:
             entry[k] = v
         out[guid] = entry
     return out
+
+
+def received_path(media_dir: Path, deck_id: str, edition: str) -> Path:
+    return media_dir / f"_deckdock_{deck_id}_{edition}.json"
+
+
+def _read_received_file(path: Path) -> dict[str, object] | None:
+    """The validated content of a received file, or None.
+
+    A file whose `deck_id` / `edition` would not give its own name is rejected.
+    """
+    try:
+        raw = cast(object, json.loads(path.read_text(encoding="utf-8")))
+        top = _obj(raw, "received")
+        deck_id, edition = top.get("deck_id"), top.get("edition")
+        if (
+            top.get("format") != RECEIVED_FORMAT
+            or not isinstance(deck_id, str)
+            or not isinstance(edition, str)
+            or received_path(path.parent, deck_id, edition) != path
+        ):
+            return None
+        snapshots = _obj(top.get("snapshots"), "received")
+        top["snapshots"] = {v: _load_received(r) for v, r in snapshots.items()}
+    except (OSError, ValueError, RecursionError):
+        return None
+    return top
+
+
+def read_received(path: Path, installed_version: str | None) -> dict[str, Received]:
+    """The snapshot of `installed_version`, else the latest one, else `{}`.
+
+    Never raises: a missing, unreadable or malformed file, or one written for
+    another deck or edition than its name says, reads as `{}`.
+    """
+    if installed_version is None:
+        return {}
+    top = _read_received_file(path)
+    if top is None:
+        return {}
+    snapshots = cast(dict[str, dict[str, Received]], top["snapshots"])
+    if installed_version in snapshots:
+        return snapshots[installed_version]
+    latest = top.get("latest")
+    if isinstance(latest, str) and latest in snapshots:
+        return snapshots[latest]
+    return {}
+
+
+def received_snapshot_is(
+    path: Path, version: str, received: dict[str, Received]
+) -> bool:
+    """Whether the file's latest snapshot is `version`, holding exactly `received`."""
+    top = _read_received_file(path)
+    if top is None or top.get("latest") != version:
+        return False
+    snapshots = cast(dict[str, dict[str, Received]], top["snapshots"])
+    return snapshots.get(version) == received
+
+
+def write_received(
+    path: Path,
+    deck_id: str,
+    edition: str,
+    version: str,
+    received: dict[str, Received],
+) -> None:
+    """Write the snapshot of `version` atomically, keeping the previous latest one.
+
+    At most two snapshots are kept: `version` and the previous `latest`. When
+    `version` already is the latest, the other snapshot is kept instead.
+    """
+    snapshots: dict[str, dict[str, Received]] = {}
+    top = _read_received_file(path)
+    if top is not None and received_path(path.parent, deck_id, edition) == path:
+        old = cast(dict[str, dict[str, Received]], top["snapshots"])
+        latest = top.get("latest")
+        keep = (
+            latest
+            if isinstance(latest, str) and latest != version
+            else next((v for v in old if v != version), None)
+        )
+        if keep is not None and keep in old:
+            snapshots[keep] = old[keep]
+    snapshots[version] = received
+    payload = {
+        "format": RECEIVED_FORMAT,
+        "deck_id": deck_id,
+        "edition": edition,
+        "latest": version,
+        "snapshots": {v: _dump_received(r) for v, r in snapshots.items()},
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, separators=(",", ":"))
+        _ = Path(tmp).replace(path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def read_catalog(col: ConfigCollection) -> Catalog:

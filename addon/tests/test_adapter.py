@@ -22,8 +22,10 @@ from deckdock_addon.adapter import (
     PartialApplyError,
     apply_plan,
     notetype_name,
+    preview_plan,
     read_local_state,
     update_subscription,
+    with_received,
 )
 from deckdock_addon.engine import DELETED_TAG, Plan, make_plan
 from deckdock_addon.sources import SourceError, fetch_deck
@@ -32,6 +34,8 @@ from deckdock_addon.store import (
     full_versions_path,
     read_catalog,
     read_full_versions,
+    read_received,
+    received_path,
 )
 from tests.conftest import (
     BASE_URL,
@@ -83,6 +87,11 @@ def must_note(col: Collection, guid: str) -> AnkiNote:
     note = note_by_guid(col, guid)
     assert note is not None
     return note
+
+
+def stored(col: Collection) -> tuple[Subscription, ...]:
+    """The persisted subscriptions: config plus received file of the media folder."""
+    return tuple(with_received(col, s) for s in read_catalog(col).subscriptions)
 
 
 def schema(col: Collection) -> int:
@@ -140,7 +149,7 @@ def test_install_creates_notetypes_deck_notes_media(
     assert set(versions) == guids
 
     # The subscription is persisted in the collection config within the operation.
-    assert read_catalog(col).subscriptions == (new_sub,)
+    assert stored(col) == (new_sub,)
 
     # Applying the same version again changes nothing.
     again, plan2 = run(col, server, new_sub, profile_dir)
@@ -334,7 +343,7 @@ def test_whole_update_is_one_undo_step(
 
     updated, plan = run(col, server, new_sub, profile_dir)
     assert (plan.counts.created, plan.counts.updated) == (1, 1)
-    assert read_catalog(col).subscriptions == (updated,)
+    assert stored(col) == (updated,)
     assert col.undo_status().undo == LABEL
 
     _ = col.undo()
@@ -346,7 +355,7 @@ def test_whole_update_is_one_undo_step(
     assert reversed_nt is not None
     assert reversed_nt["css"] == ".card { color: black; }"
     # The persisted subscription is rolled back with the collection.
-    assert read_catalog(col).subscriptions == (new_sub,)
+    assert stored(col) == (new_sub,)
 
 
 def test_existing_guid_from_other_source_is_conflict(
@@ -429,7 +438,7 @@ def test_failure_during_apply_rolls_back(
 
     assert col.note_count() == 3
     assert note_by_guid(col, "hw-basic-2") is None
-    assert read_catalog(col).subscriptions == (new_sub,)
+    assert stored(col) == (new_sub,)
     _, plan = run(col, server, new_sub, profile_dir)
     assert (plan.counts.created, plan.counts.updated) == (1, 1)
 
@@ -451,7 +460,7 @@ def test_network_failure_during_media_changes_nothing(
 
     assert (col.mod, col.note_count()) == (mod, count)
     assert sorted(p.name for p in Path(col.media.dir()).iterdir()) == files
-    assert read_catalog(col).subscriptions == (new_sub,)
+    assert stored(col) == (new_sub,)
 
     server.failing.clear()
     updated, plan = run(col, server, new_sub, profile_dir)
@@ -609,7 +618,7 @@ def test_filtered_deck_clash_refused_before_any_write(
     assert deckdock_notetypes(col) == []
     assert (col.mod, col.note_count()) == (mod, count)
     assert col.undo_status().undo == label
-    assert read_catalog(col).subscriptions == ()
+    assert stored(col) == ()
 
     _ = col.decks.rename(filtered, "My filtered deck")
     new_sub, plan = run(col, server, sub, profile_dir)
@@ -630,7 +639,7 @@ def test_subdeck_under_filtered_deck_refused(
     with pytest.raises(ApplyRefusedError, match="filtered"):
         _ = run(col, server, new_sub, profile_dir)
     assert col.note_count() == count
-    assert read_catalog(col).subscriptions == (new_sub,)
+    assert stored(col) == (new_sub,)
 
 
 def test_note_deleted_between_plan_and_apply_is_refused(
@@ -680,7 +689,7 @@ def test_backend_error_mid_apply_is_reported_and_retry_does_not_duplicate(
 
     assert raised.value.__cause__ is not None
     assert "Check again" in str(raised.value)
-    assert read_catalog(col).subscriptions == (new_sub,)
+    assert stored(col) == (new_sub,)
 
     finished, plan = run(col, server, new_sub, profile_dir)
 
@@ -721,7 +730,7 @@ def test_partial_install_retry_reuses_notetypes_and_root_deck(
     assert raised.value.__cause__ is not None
     assert col.note_count() == 0
     assert len(deckdock_notetypes(col)) == 3  # left by the failed attempt
-    assert read_catalog(col).subscriptions == ()
+    assert stored(col) == ()
 
     new_sub, plan = run(col, server, sub, profile_dir)
 
@@ -769,7 +778,7 @@ def test_noop_update_adds_no_undo_entry(
     assert is_noop(plan)
     assert col.undo_status().undo == label
     assert again.etag != new_sub.etag  # the fake server sends a new ETag each time
-    assert read_catalog(col).subscriptions == (again,)
+    assert stored(col) == (again,)
     assert col.note_count() == 4
 
 
@@ -821,7 +830,7 @@ def test_two_decks_same_display_name_get_separate_notetypes(
     assert basic_a is not None
     assert (basic_a["tmpls"][0]["qfmt"], basic_a["css"]) == before
     assert must_note(col, "other-1").mid == sub_b.notetype_ids["basic"]
-    catalog_a = next(s for s in read_catalog(col).subscriptions if s.id == sub.id)
+    catalog_a = next(s for s in stored(col) if s.id == sub.id)
     _, plan_a = run(col, server, catalog_a, profile_dir)
     assert is_noop(plan_a)
 
@@ -883,3 +892,91 @@ def test_preview_plan_matches_the_update_and_writes_nothing(
     assert not col.undo_status().undo
     _, applied = run(col, server, sub, profile_dir)
     assert preview == applied
+
+
+def received_file(col: Collection) -> Path:
+    return received_path(Path(col.media.dir()), "hello-world", "en")
+
+
+def test_received_kept_in_media_folder_not_in_config(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    new_sub, _ = run(col, server, sub, profile_dir)
+
+    path = received_file(col)
+    assert path.parent == Path(col.media.dir())
+    assert path.name == "_deckdock_hello-world_en.json"
+    assert read_received(path, "1") == new_sub.received
+    assert len(new_sub.received) == 3
+    (stored_sub,) = read_catalog(col).subscriptions
+    assert stored_sub.received == {}
+    assert "received" not in str(cast(object, col.get_config("deckdock")))
+    # Anki's media check keeps the file.
+    report = col.media.check()
+    assert path.name not in report.unused
+    assert path.exists()
+
+
+def test_noop_update_does_not_rewrite_received_file(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    new_sub, _ = run(col, server, sub, profile_dir)
+    path = received_file(col)
+    before = (path.stat().st_mtime_ns, path.read_bytes())
+    time.sleep(0.01)
+
+    _, plan = run(col, server, new_sub, profile_dir)
+
+    assert is_noop(plan)
+    assert (path.stat().st_mtime_ns, path.read_bytes()) == before
+
+
+def test_undo_uses_the_previous_received_snapshot(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    _ = run(col, server, sub, profile_dir)
+    deck = build_deck("2")
+    deck["notes"][1]["fields"]["Back"] = "chatte"
+    server.publish(deck)
+    (installed,) = read_catalog(col).subscriptions
+    _, plan = run(col, server, installed, profile_dir)
+    assert plan.counts.updated == 1
+    assert read_received(received_file(col), "2") != read_received(
+        received_file(col), "1"
+    )
+
+    _ = col.undo()
+
+    (current,) = read_catalog(col).subscriptions
+    assert current.installed_version == "1"
+    assert must_note(col, "hw-reversed-1")["Back"] == "chat"
+    again = preview_plan(col, deck, current)
+    assert [a.guid for a in again.note_actions] == ["hw-reversed-1"]
+    assert all(s.reason != "modified_locally" for s in again.skipped)
+    updated, applied = run(col, server, current, profile_dir)
+    assert applied.counts.updated == 1
+    assert must_note(col, "hw-reversed-1")["Back"] == "chatte"
+    assert updated.installed_version == "2"
+
+
+def test_received_write_failure_keeps_the_update(
+    col: Collection,
+    server: FakeServer,
+    sub: Subscription,
+    profile_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def fail(*args: object) -> None:
+        del args
+        raise OSError("disk full")
+
+    monkeypatch.setattr(adapter, "write_received", fail)
+
+    new_sub, plan = run(col, server, sub, profile_dir)
+
+    assert plan.counts.created == 3
+    assert col.note_count() == 3
+    assert new_sub.installed_version == "1"
+    assert not received_file(col).exists()
+    assert "disk full" in caplog.text

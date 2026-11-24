@@ -7,10 +7,16 @@ subscription) is merged into a single undo entry. What could make a collection
 step fail is checked before the first write; if a step still fails, the steps
 already done are undone, or `PartialApplyError` reports that they could not be.
 An update with nothing to change in the collection creates no undo entry.
+
+The received fingerprints live in a file of the media folder (see `store`). It
+is read before every plan and written after a successful apply, outside the
+undo entry: undoing restores the previous `installed_version`, whose snapshot
+the file still holds.
 """
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import replace
@@ -49,8 +55,14 @@ from deckdock_addon.store import (
     full_versions_path,
     read_catalog,
     read_full_versions,
+    read_received,
+    received_path,
+    received_snapshot_is,
     write_full_versions,
+    write_received,
 )
+
+_log = logging.getLogger(__name__)
 
 SQL_CHUNK = 500
 _MODEL_CLOZE = 1
@@ -105,6 +117,7 @@ def read_local_state(
 ) -> LocalState:
     """Notes whose GUID is in the deck or was received, and the relevant notetypes.
 
+    `sub.received` must hold the received file's snapshot (`with_received`).
     Notes are read with one SQL query per chunk of 500 GUIDs.
     """
     guids = sorted({n["guid"] for n in deck["notes"]} | set(sub.received))
@@ -572,6 +585,7 @@ class _Applier:
         notes deleted by the user.
         """
         subs = self.catalog.subscriptions
+        sub = replace(sub, received={})  # kept in the media folder, not the config
         if any(s.id == sub.id for s in subs):
             if sub in subs:
                 return
@@ -661,7 +675,40 @@ def apply_plan(
         raise ValueError(f"refusing to apply a blocked plan: {plan.blocked}")
     if plan.needs_full_sync_confirmation and not confirmed_full_sync:
         raise ValueError("this plan needs the user to confirm a full sync")
-    return _Applier(col, deck, sub, plan).run(undo_label)
+    new_sub, extra = _Applier(col, deck, sub, plan).run(undo_label)
+    _write_received(col, new_sub)
+    return new_sub, extra
+
+
+# --- received fingerprints ---------------------------------------------------------
+
+
+def _received_file(col: Collection, sub: Subscription) -> Path:
+    return received_path(Path(col.media.dir()), sub.deck_id, sub.edition)
+
+
+def with_received(col: Collection, sub: Subscription) -> Subscription:
+    """`sub` with the received fingerprints of its installed version."""
+    received = read_received(_received_file(col, sub), sub.installed_version)
+    return replace(sub, received=received)
+
+
+def _write_received(col: Collection, sub: Subscription) -> None:
+    """Record the received fingerprints of the applied version, unless already there.
+
+    A failure is only logged: the update itself is applied and persisted.
+    """
+    if sub.installed_version is None:
+        return
+    path = _received_file(col, sub)
+    if received_snapshot_is(path, sub.installed_version, sub.received):
+        return
+    try:
+        write_received(
+            path, sub.deck_id, sub.edition, sub.installed_version, sub.received
+        )
+    except OSError as error:
+        _log.warning("DeckDock: could not write %s: %s", path, error)
 
 
 # --- full pipeline -----------------------------------------------------------------
@@ -725,7 +772,7 @@ def _without_foreign_anki_ids(
 def _plan(
     col: Collection, deck: CompiledDeck, sub: Subscription, exclude: frozenset[int]
 ) -> tuple[Subscription, Plan]:
-    base = adopt_notetypes(col, deck, sub, exclude)
+    base = adopt_notetypes(col, deck, with_received(col, sub), exclude)
     return base, make_plan(deck, base, read_local_state(col, deck, base))
 
 
