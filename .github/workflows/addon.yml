@@ -26,3 +26,19 @@ jobs:
       - run: uv run --locked ruff format --check .
       - run: uv run --locked basedpyright
       - run: uv run --locked pytest -q
+
+  package:
+    needs: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: addon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run --locked python scripts/package.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deckdock-addon
+          path: addon/dist/*.ankiaddon
+          if-no-files-found: error
