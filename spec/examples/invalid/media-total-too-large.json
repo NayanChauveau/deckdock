@@ -1,0 +1,300 @@
+{
+  "format": "deckdock/1",
+  "deck": {
+    "id": "hello-deck",
+    "edition": "en",
+    "name": "My first deck",
+    "language": [
+      "en"
+    ],
+    "version": "dev"
+  },
+  "notetypes": [
+    {
+      "id": "basic",
+      "name": "DeckDock Basic",
+      "kind": "standard",
+      "fields": [
+        "Front",
+        "Back"
+      ],
+      "templates": [
+        {
+          "name": "Card 1",
+          "front": "{{Front}}",
+          "back": "{{FrontSide}}<hr id=\"answer\">{{Back}}"
+        }
+      ],
+      "css": ".card { font-family: sans-serif; }"
+    }
+  ],
+  "notes": [
+    {
+      "guid": "a1B2c3D4e5",
+      "notetype": "basic",
+      "deck": "",
+      "fields": {
+        "Front": "<p>Hello</p>",
+        "Back": "<p>World</p>"
+      },
+      "tags": []
+    }
+  ],
+  "media": [
+    {
+      "filename": "0.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "1.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "2.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "3.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "4.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "5.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "6.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "7.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "8.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "9.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "10.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "11.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "12.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "13.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "14.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "15.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "16.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "17.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "18.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "19.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "20.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "21.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "22.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "23.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "24.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "25.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "26.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "27.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "28.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "29.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "30.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "31.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "32.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "33.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "34.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "35.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "36.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "37.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "38.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "39.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "40.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "41.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "42.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "43.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "44.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "45.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "46.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "47.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "48.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "49.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    },
+    {
+      "filename": "50.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 10485760
+    }
+  ]
+}

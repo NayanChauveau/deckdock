@@ -1,0 +1,161 @@
+{
+  "format": "deckdock/1",
+  "deck": {
+    "id": "wine-theory",
+    "edition": "fr",
+    "name": "Théorie du vin (WSET 3)",
+    "description": "Cartes de révision.",
+    "language": [
+      "fr",
+      "en"
+    ],
+    "homepage": "https://example.com/wine-theory",
+    "license": "CC-BY-SA-4.0",
+    "version": "2026-11-24T10:12:00Z+3f2a9c1",
+    "generator": "deckdock 0.1.0",
+    "anki_id": 1607392319,
+    "options": {
+      "new_per_day": 15,
+      "reviews_per_day": 200
+    }
+  },
+  "notetypes": [
+    {
+      "id": "basic",
+      "name": "DeckDock Basic",
+      "kind": "standard",
+      "fields": [
+        "Front",
+        "Back"
+      ],
+      "templates": [
+        {
+          "name": "Card 1",
+          "front": "{{Front}}",
+          "back": "{{FrontSide}}<hr id=\"answer\">{{Back}}"
+        }
+      ],
+      "css": ".card { font-family: sans-serif; }",
+      "anki_id": 1607392320
+    },
+    {
+      "id": "reversed",
+      "name": "DeckDock Reversed",
+      "kind": "standard",
+      "fields": [
+        "Front",
+        "Back"
+      ],
+      "templates": [
+        {
+          "name": "Forward",
+          "front": "{{Front}}",
+          "back": "{{FrontSide}}<hr id=\"answer\">{{Back}}"
+        },
+        {
+          "name": "Backward",
+          "front": "{{Back}}",
+          "back": "{{FrontSide}}<hr id=\"answer\">{{Front}}"
+        }
+      ],
+      "css": ".card { font-family: sans-serif; }"
+    },
+    {
+      "id": "cloze",
+      "name": "DeckDock Cloze",
+      "kind": "cloze",
+      "fields": [
+        "Text",
+        "Extra"
+      ],
+      "templates": [
+        {
+          "name": "Cloze",
+          "front": "{{cloze:Text}}",
+          "back": "{{cloze:Text}}<br>{{Extra}}"
+        }
+      ],
+      "css": ".cloze { font-weight: bold; }"
+    },
+    {
+      "id": "mcq",
+      "name": "DeckDock MCQ",
+      "kind": "standard",
+      "fields": [
+        "Question",
+        "Choices",
+        "Explanation"
+      ],
+      "templates": [
+        {
+          "name": "Card 1",
+          "front": "{{Question}}<div id=\"choices\">{{Choices}}</div><script>document.getElementById('choices').dataset.ready = '1';</script>",
+          "back": "{{FrontSide}}<hr id=\"answer\">{{Explanation}}"
+        }
+      ],
+      "css": "#choices { margin: 1em 0; } .map { background: url(map.png); }"
+    }
+  ],
+  "notes": [
+    {
+      "guid": "n1",
+      "notetype": "basic",
+      "deck": "",
+      "fields": {
+        "Front": "<p>Capital of France?</p>",
+        "Back": "<p>Paris</p>"
+      },
+      "tags": [
+        "france"
+      ]
+    },
+    {
+      "guid": "n2",
+      "notetype": "reversed",
+      "deck": "France::Bordeaux",
+      "fields": {
+        "Front": "<p>Bordeaux grape</p>",
+        "Back": "<p>Merlot</p>"
+      },
+      "tags": [
+        "france",
+        "bordeaux"
+      ]
+    },
+    {
+      "guid": "n3",
+      "notetype": "cloze",
+      "deck": "France::Bordeaux::Left Bank",
+      "fields": {
+        "Text": "<p>{{c1::Cabernet Sauvignon}} dominates.</p>",
+        "Extra": ""
+      },
+      "tags": []
+    },
+    {
+      "guid": "n4",
+      "notetype": "mcq",
+      "deck": "France",
+      "fields": {
+        "Question": "<p>Which region?</p><img src=\"map.png\">",
+        "Choices": "<ul><li>Bordeaux</li><li>Alsace</li></ul>",
+        "Explanation": "<p>Bordeaux.</p> [sound:bell.mp3]"
+      },
+      "tags": [
+        "geography"
+      ]
+    }
+  ],
+  "media": [
+    {
+      "filename": "map.png",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 7
+    },
+    {
+      "filename": "bell.mp3",
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "size": 7
+    }
+  ]
+}
