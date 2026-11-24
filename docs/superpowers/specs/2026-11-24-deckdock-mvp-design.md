@@ -319,3 +319,28 @@ Les apkg et les releases GitHub continuent d'être publiés jusqu'à la sortie d
 9. `deck.options` facultatif, appliqué seulement à la première installation.
 10. Les decks existants gardent leurs apkg à côté du JSON jusqu'à l'extension v2.
 11. Hébergement : compte GitHub perso `NayanChauveau` (`NayanChauveau/deckdock`, `NayanChauveau/deckdock-template`). Le nom `deckdock` est libre sur PyPI.
+
+---
+
+## 8. Révision du 24/11/2026 : le compilateur appartient au dépôt du deck
+
+**Décision de Nayan, après la publication de `v1`.** La seule chose centrale est le **format `deck.json`** (`deckdock/1`), versionné et évolutif. La façon de compiler appartient à chaque dépôt de deck. Le dépôt modèle fournit un **compilateur d'exemple**, que chacun modifie librement, seul ou avec des agents.
+
+**Ce que ça change :**
+
+- **`deckdock` (monorepo)** ne contient plus que :
+  - la spec `deckdock/1`, le JSON Schema et les exemples ;
+  - la bibliothèque Python stdlib-only (`deckdock.format` avec ses vérifications et ses types, `deckdock.guid`, `deckdock.issues`) ;
+  - la CLI réduite à `deckdock check` (plus `push` au projet 2) ;
+  - l'Action réduite à `check`.
+
+  `init`, `validate`, `build`, le rendu Markdown, les notetypes et le scaffold quittent le monorepo. La CLI n'a plus de dépendance tierce. C'est une publication **`v2`** de `deckdock`, et `v1` reste en place.
+- **`deckdock-template`** devient un projet Python complet :
+  - le compilateur d'exemple dans `compiler/` : lecture et validation du YAML avec `fichier:ligne`, rendu Markdown, quatre notetypes, écriture de `dist/` ;
+  - ses tests ;
+  - la doc du format YAML d'exemple ;
+  - une CI qui teste le compilateur, compile, lance `deckdock check` via l'Action `@v2`, puis publie l'artefact.
+
+  Le compilateur dépend de la bibliothèque `deckdock` (installée depuis Git au tag `v2`) pour les types, les GUID et la vérification.
+- **La spec `deckdock-1.md`** gagne une section « Écrire son propre compilateur ». Elle y fixe les obligations : GUID stables, `deck.id`, éditions et ids de cartes permanents, et `deckdock check` doit passer.
+- **Inchangés :** le format, le futur hub et le futur plugin.
