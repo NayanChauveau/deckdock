@@ -1,0 +1,44 @@
+{
+  "format": "deckdock/1",
+  "deck": {
+    "id": "hello-deck",
+    "edition": "en",
+    "name": "My first deck",
+    "language": [
+      "en"
+    ],
+    "version": "dev"
+  },
+  "notetypes": [
+    {
+      "id": "basic",
+      "name": "DeckDock Basic",
+      "kind": "standard",
+      "fields": [
+        "Front",
+        "Back"
+      ],
+      "templates": [
+        {
+          "name": "Card 1",
+          "front": "{{Front}}",
+          "back": "{{FrontSide}}<hr id=\"answer\">{{Back}}"
+        }
+      ],
+      "css": ".card { font-family: sans-serif; }"
+    }
+  ],
+  "notes": [
+    {
+      "guid": "a1B2c3D4e5",
+      "notetype": "basic",
+      "deck": "",
+      "fields": {
+        "Front": "<p>Hello</p>",
+        "Back": 3
+      },
+      "tags": []
+    }
+  ],
+  "media": []
+}

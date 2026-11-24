@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/NayanChauveau/deckdock/spec/deckdock-1.schema.json",
+  "title": "deckdock/1 compiled deck",
+  "description": "Structure of dist/<edition>/deck.json. Cross-object rules (unique guids and notetype ids, note fields matching the notetype, media files on disk, media references) are not expressible here and are enforced by `deckdock check`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "deck", "notetypes", "notes", "media"],
+  "properties": {
+    "format": { "const": "deckdock/1" },
+    "deck": { "$ref": "#/$defs/deck" },
+    "notetypes": { "type": "array", "items": { "$ref": "#/$defs/notetype" } },
+    "notes": { "type": "array", "maxItems": 50000, "items": { "$ref": "#/$defs/note" } },
+    "media": { "type": "array", "items": { "$ref": "#/$defs/media" } }
+  },
+  "$defs": {
+    "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "ankiId": { "type": "integer", "exclusiveMinimum": 0 },
+    "deck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "edition", "name", "language", "version"],
+      "properties": {
+        "id": { "$ref": "#/$defs/slug" },
+        "edition": { "type": "string", "minLength": 1, "pattern": "^[^/]+$" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "language": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "homepage": { "type": "string" },
+        "license": { "type": "string" },
+        "version": { "type": "string" },
+        "generator": { "type": "string" },
+        "anki_id": { "$ref": "#/$defs/ankiId" },
+        "options": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "new_per_day": { "type": "integer", "minimum": 0 },
+            "reviews_per_day": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "notetype": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "kind", "fields", "templates", "css"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "kind": { "enum": ["standard", "cloze"] },
+        "fields": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "templates": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/template" } },
+        "css": { "type": "string" },
+        "anki_id": { "$ref": "#/$defs/ankiId" }
+      },
+      "if": { "properties": { "kind": { "const": "cloze" } }, "required": ["kind"] },
+      "then": { "properties": { "templates": { "maxItems": 1 } } }
+    },
+    "template": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "front", "back"],
+      "properties": {
+        "name": { "type": "string" },
+        "front": { "type": "string" },
+        "back": { "type": "string" }
+      }
+    },
+    "note": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["guid", "notetype", "deck", "fields", "tags"],
+      "properties": {
+        "guid": { "type": "string", "minLength": 1 },
+        "notetype": { "type": "string" },
+        "deck": { "type": "string", "pattern": "^$|^(?:(?!::)[\\s\\S])+(?:::(?:(?!::)[\\s\\S])+)*$" },
+        "fields": { "type": "object", "additionalProperties": { "type": "string" } },
+        "tags": { "type": "array", "items": { "type": "string", "pattern": "^\\S+$" } }
+      }
+    },
+    "media": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filename", "sha256", "size"],
+      "properties": {
+        "filename": { "type": "string", "pattern": "^(?!\\.{1,2}$)[^/\\\\]+$" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "size": { "type": "integer", "minimum": 0, "maximum": 10485760 }
+      }
+    }
+  }
+}
