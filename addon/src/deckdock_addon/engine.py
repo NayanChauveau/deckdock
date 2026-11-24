@@ -8,8 +8,11 @@ the returned `Plan`.
 
 from __future__ import annotations
 
+import functools
 import html
+import os
 import re
+import unicodedata
 import urllib.parse
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -31,6 +34,7 @@ _REFERENCE_PATTERNS = (
 )
 _HTML_TAG = re.compile(r"<[^>]*>")
 _WHITESPACE = re.compile(r"\s+")
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f]")
 
 NotetypeChange = Literal["create", "update", "append_fields", "unchanged"]
 SkipReason = Literal[
@@ -149,34 +153,35 @@ def _decode(raw: str) -> str:
     return urllib.parse.unquote(html.unescape(raw))
 
 
-def _encode_like(raw: str, new: str) -> str:
-    """Encode `new` the way `raw` was encoded (percent, then HTML)."""
-    unescaped = html.unescape(raw)
-    out = new
-    if urllib.parse.unquote(unescaped) != unescaped:
-        out = urllib.parse.quote(out, safe="/")
-    if unescaped != raw:
-        out = html.escape(out, quote=False)
-    return out
+def normalize_field(text: str) -> str:
+    """Field text as Anki stores it: NFC, no "\\r", no C0 control except tab/newline."""
+    return _CONTROL.sub("", unicodedata.normalize("NFC", text))
 
 
-def _rewrite(text: str, mapping: dict[str, str]) -> str:
+def _reference_spans(text: str) -> list[tuple[int, int]]:
+    """Sorted, non-overlapping, non-empty spans of media names in `text`."""
     spans: list[tuple[int, int]] = []
     for pattern in _REFERENCE_PATTERNS:
         spans.extend(m.span(1) for m in pattern.finditer(text))
-    spans.sort()
+    out: list[tuple[int, int]] = []
+    pos = 0
+    for start, end in sorted(spans):
+        if start >= pos and start != end:
+            out.append((start, end))
+            pos = end
+    return out
+
+
+def _substitute(text: str, replace: Callable[[str], str | None]) -> str:
+    """Replace each media name occurrence (raw text) by `replace(raw)` unless None."""
     parts: list[str] = []
     pos = 0
-    for start, end in spans:
-        if start < pos or start == end:
-            continue
-        raw = text[start:end]
-        name = _decode(raw)
-        target = mapping.get(name) if _is_local_reference(name) else None
-        if target is None or target == name:
+    for start, end in _reference_spans(text):
+        new = replace(text[start:end])
+        if new is None:
             continue
         parts.append(text[pos:start])
-        parts.append(_encode_like(raw, target))
+        parts.append(new)
         pos = end
     if not parts:
         return text
@@ -184,17 +189,140 @@ def _rewrite(text: str, mapping: dict[str, str]) -> str:
     return "".join(parts)
 
 
+def _references(text: str) -> set[str]:
+    """Local media names referenced in `text` (decoded, NFC)."""
+    names = (
+        unicodedata.normalize("NFC", _decode(text[a:b]))
+        for a, b in _reference_spans(text)
+    )
+    return {n for n in names if _is_local_reference(n)}
+
+
+def _style_encode(raw: str, text: str) -> str:
+    """Encode `text` with the encodings used by `raw` (percent, then HTML)."""
+    unescaped = html.unescape(raw)
+    out = text
+    if urllib.parse.unquote(unescaped) != unescaped:
+        out = urllib.parse.quote(out, safe="/")
+    if unescaped != raw:
+        out = html.escape(out, quote=False)
+    return out
+
+
+def _split(raw: str, prefix: str, middle: str, suffix: str) -> tuple[str, str] | None:
+    """Raw spellings (a, b) of `prefix` and `suffix` such that raw = a + m + b.
+
+    The first valid split (shortest a, then shortest b) is chosen, so the same
+    raw a and b are found again when mapping the rewritten name back.
+    """
+    n = len(raw)
+    for i in range(n + 1):
+        if _decode(raw[:i]) != prefix:
+            continue
+        for j in range(n, i - 1, -1):
+            if _decode(raw[j:]) == suffix and _decode(raw[i:j]) == middle:
+                return raw[:i], raw[j:]
+    return None
+
+
+def _encode_like(raw: str, name: str, new: str) -> str:
+    """Spell `new` like `raw` spells `name`, keeping the common prefix and suffix as is.
+
+    Anki renames a file by inserting a suffix before the extension, so the
+    differing part is usually only the inserted text, and mapping back restores
+    the original spelling exactly.
+    """
+    p = len(os.path.commonprefix([name, new]))
+    limit = min(len(name), len(new)) - p
+    s = len(os.path.commonprefix([name[p:][::-1], new[p:][::-1]]))
+    s = min(s, limit)
+    split = _split(raw, name[:p], name[p : len(name) - s], name[len(name) - s :])
+    if split is not None:
+        a, b = split
+        out = a + _style_encode(raw, new[p : len(new) - s]) + b
+        if _decode(out) == new:
+            return out
+    out = _style_encode(raw, new)
+    return out if _decode(out) == new else new
+
+
+def _rewrite(text: str, mapping: dict[str, str]) -> str:
+    def replace(raw: str) -> str | None:
+        name = _decode(raw)
+        target = mapping.get(name) if _is_local_reference(name) else None
+        if target is None or target == name:
+            return None
+        return _encode_like(raw, name, target)
+
+    return _substitute(text, replace)
+
+
 def to_local_names(text: str, media: dict[str, MediaRecord]) -> str:
     """Rewrite media references from origin names to local Anki names."""
     return _rewrite(text, {origin: r.local_name for origin, r in media.items()})
 
 
-def to_origin_names(text: str, media: dict[str, MediaRecord]) -> str:
-    """Rewrite media references from local Anki names back to origin names."""
+def _reverse(media: dict[str, MediaRecord]) -> dict[str, str]:
     reverse: dict[str, str] = {}
     for origin, r in sorted(media.items()):
         _ = reverse.setdefault(r.local_name, origin)
-    return _rewrite(text, reverse)
+    return reverse
+
+
+def to_origin_names(text: str, media: dict[str, MediaRecord]) -> str:
+    """Rewrite media references from local Anki names back to origin names."""
+    return _rewrite(text, _reverse(media))
+
+
+class _Canon:
+    """Comparable form of field, template and CSS text.
+
+    Text is normalized like Anki stores it, and every recognized media
+    reference becomes a token of its decoded origin name, so spelling and local
+    renaming never look like an edit. On the local side, a name that is the
+    origin name of a media stored under another local name stays literal: the
+    user pointed it at another file.
+    """
+
+    def __init__(self, media: dict[str, MediaRecord]) -> None:
+        nfc = functools.partial(unicodedata.normalize, "NFC")
+        self.reverse: dict[str, str] = {
+            nfc(k): nfc(v) for k, v in _reverse(media).items()
+        }
+        self.origins: set[str] = {nfc(k) for k in media}
+
+    @staticmethod
+    def _tokens(text: str, token: Callable[[str], str | None]) -> str:
+        def replace(raw: str) -> str | None:
+            name = unicodedata.normalize("NFC", _decode(raw))
+            if not _is_local_reference(name):
+                return None
+            t = token(name)
+            return None if t is None else f"\x00{t}\x00"
+
+        return _substitute(normalize_field(text), replace)
+
+    def deck(self, text: str) -> str:
+        return self._tokens(text, lambda name: name)
+
+    def local(self, text: str) -> str:
+        def token(name: str) -> str | None:
+            if name in self.reverse:
+                return self.reverse[name]
+            return None if name in self.origins else name
+
+        return self._tokens(text, token)
+
+    def deck_fields(self, fields: dict[str, str]) -> dict[str, str]:
+        return {k: self.deck(v) for k, v in fields.items()}
+
+    def local_fields(self, fields: dict[str, str]) -> dict[str, str]:
+        return {k: self.local(v) for k, v in fields.items()}
+
+
+def received_fingerprint(fields: dict[str, str]) -> str:
+    """Fingerprint recorded for received deck fields (comparable form)."""
+    return fingerprint(_Canon({}).deck_fields(fields))
 
 
 # --- helpers ---
@@ -248,22 +376,32 @@ def _structure_problem(nt: Notetype, loc: LocalNotetype) -> str | None:
     return None
 
 
-def _templates_match(nt: Notetype, loc: LocalNotetype, sub: Subscription) -> bool:
+def _notetype_texts(nt: Notetype) -> list[str]:
+    return [nt["css"], *(x for t in nt["templates"] for x in (t["front"], t["back"]))]
+
+
+def _templates_match(
+    nt: Notetype, loc: LocalNotetype, canon: _Canon, changed: set[str]
+) -> bool:
     if loc.templates is None or loc.css is None:
         return False
+    if any(_references(normalize_field(t)) & changed for t in _notetype_texts(nt)):
+        return False
     local_templates = tuple(
-        (name, to_origin_names(front, sub.media), to_origin_names(back, sub.media))
+        (name, canon.local(front), canon.local(back))
         for name, front, back in loc.templates
     )
-    deck_templates = tuple((t["name"], t["front"], t["back"]) for t in nt["templates"])
-    return (
-        local_templates == deck_templates
-        and to_origin_names(loc.css, sub.media) == nt["css"]
+    deck_templates = tuple(
+        (t["name"], canon.deck(t["front"]), canon.deck(t["back"]))
+        for t in nt["templates"]
+    )
+    return local_templates == deck_templates and canon.local(loc.css) == canon.deck(
+        nt["css"]
     )
 
 
 def _notetype_action(
-    nt: Notetype, loc: LocalNotetype | None, sub: Subscription
+    nt: Notetype, loc: LocalNotetype | None, canon: _Canon, changed: set[str]
 ) -> NotetypeAction:
     slug = nt["id"]
     if loc is None:
@@ -271,7 +409,9 @@ def _notetype_action(
     appended = tuple(nt["fields"][len(loc.field_names) :])
     if appended:
         return NotetypeAction(slug, "append_fields", loc.anki_id, appended)
-    change: NotetypeChange = "unchanged" if _templates_match(nt, loc, sub) else "update"
+    change: NotetypeChange = (
+        "unchanged" if _templates_match(nt, loc, canon, changed) else "update"
+    )
     return NotetypeAction(slug, change, loc.anki_id, ())
 
 
@@ -294,11 +434,17 @@ def _blocked_plan(message: str, sub: Subscription, names: dict[str, str]) -> Pla
 
 class _Builder:
     def __init__(
-        self, sub: Subscription, local: LocalState, mapped: dict[str, int | None]
+        self,
+        sub: Subscription,
+        local: LocalState,
+        mapped: dict[str, int | None],
+        changed_media: set[str],
     ) -> None:
         self.sub: Subscription = sub
         self.local: LocalState = local
         self.mapped: dict[str, int | None] = mapped
+        self.changed_media: set[str] = changed_media
+        self.canon: _Canon = _Canon(sub.media)
         self.actions: list[NoteAction] = []
         self.skipped: list[Skipped] = []
         self.received: dict[str, Received] = {}
@@ -308,7 +454,8 @@ class _Builder:
         prev = self.sub.received.get(guid)
         loc = self.local.notes_by_guid.get(guid)
         deck_tags = tuple(sorted(set(n["tags"])))
-        new_rec = Received(fingerprint(n["fields"]), deck_tags)
+        deck_fields = self.canon.deck_fields(n["fields"])
+        new_rec = Received(fingerprint(deck_fields), deck_tags)
 
         if loc is None:
             if prev is not None:
@@ -328,17 +475,21 @@ class _Builder:
             self.received[guid] = new_rec
             return
 
-        origin_fields = {
-            k: to_origin_names(v, self.sub.media) for k, v in loc.fields.items()
-        }
+        local_fields = self.canon.local_fields(loc.fields)
+        # A changed media gets a new local name: the fields must be rewritten.
+        media_changed = any(
+            _references(normalize_field(v)) & self.changed_media
+            for v in n["fields"].values()
+        )
         same_notetype = loc.notetype_anki_id == self.mapped.get(n["notetype"])
 
         if prev is not None:
-            if not same_notetype or fingerprint(origin_fields) != prev.fingerprint:
+            if not same_notetype or fingerprint(local_fields) != prev.fingerprint:
                 self._skip(guid, "modified_locally", loc.fields, (), prev)
                 return
             tags_changed = set(deck_tags) != set(prev.tags) or DELETED_TAG in loc.tags
-            if new_rec.fingerprint == prev.fingerprint and not tags_changed:
+            unchanged = new_rec.fingerprint == prev.fingerprint
+            if unchanged and not tags_changed and not media_changed:
                 self.received[guid] = prev
                 return
             self._update(n, loc, prev.tags, deck_tags)
@@ -348,11 +499,11 @@ class _Builder:
         if not same_notetype:
             self._skip(guid, "foreign_note", loc.fields, (), None)
             return
-        if origin_fields != n["fields"]:
+        if local_fields != deck_fields:
             self._skip(guid, "no_base_conflict", loc.fields, (), None)
             return
         tags = _merge_tags(loc.tags, (), deck_tags)
-        if tags != tuple(sorted(set(loc.tags))):
+        if media_changed or tags != tuple(sorted(set(loc.tags))):
             self._update(n, loc, (), deck_tags)
         else:
             self.actions.append(
@@ -360,7 +511,10 @@ class _Builder:
             )
         self.received[guid] = new_rec
 
-    def retire(self, guid: str) -> None:
+    def retire(self, guid: str, prev: Received) -> None:
+        # The received entry is kept: if the note comes back to the deck after
+        # the user deleted it, it must not be recreated.
+        self.received[guid] = prev
         loc = self.local.notes_by_guid.get(guid)
         if loc is None or DELETED_TAG in loc.tags:
             return
@@ -418,28 +572,30 @@ def make_plan(deck: CompiledDeck, sub: Subscription, local: LocalState) -> Plan:
         )
         return _blocked_plan(message, sub, names)
 
+    media = tuple(
+        m
+        for m in deck["media"]
+        if (r := sub.media.get(m["filename"])) is None or r.sha256 != m["sha256"]
+    )
+    changed = {unicodedata.normalize("NFC", m["filename"]) for m in media}
+    canon = _Canon(sub.media)
     nt_actions = tuple(
-        _notetype_action(nt, resolved[nt["id"]], sub) for nt in deck["notetypes"]
+        _notetype_action(nt, resolved[nt["id"]], canon, changed)
+        for nt in deck["notetypes"]
     )
     mapped = {
         slug: (None if loc is None else loc.anki_id) for slug, loc in resolved.items()
     }
     field_orders = {nt["id"]: tuple(nt["fields"]) for nt in deck["notetypes"]}
 
-    builder = _Builder(sub, local, mapped)
+    builder = _Builder(sub, local, mapped, changed)
     deck_guids: set[str] = set()
     for n in deck["notes"]:
         deck_guids.add(n["guid"])
         builder.note(n, field_orders.get(n["notetype"], ()))
-    for guid in sub.received:
+    for guid, prev in sub.received.items():
         if guid not in deck_guids:
-            builder.retire(guid)
-
-    media = tuple(
-        m
-        for m in deck["media"]
-        if (r := sub.media.get(m["filename"])) is None or r.sha256 != m["sha256"]
-    )
+            builder.retire(guid, prev)
 
     def count(kind: str) -> int:
         return sum(1 for a in builder.actions if a.kind == kind)
