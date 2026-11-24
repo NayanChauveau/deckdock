@@ -133,7 +133,7 @@ def test_cli_init(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
 def test_doc_card_examples_are_valid(tmp_path: Path, doc: str):
     init_project(tmp_path)
     text = (tmp_path / doc).read_text(encoding="utf-8")
-    blocks = re.findall(r"```yaml\n(.*?)```", text, flags=re.DOTALL)
+    blocks = cast(list[str], re.findall(r"```yaml\n(.*?)```", text, flags=re.DOTALL))
     assert blocks or doc != "AGENTS.md"
     for i, block in enumerate(blocks):
         _ = (tmp_path / "cards" / f"doc{i}.yaml").write_text(
