@@ -590,6 +590,17 @@ class _Builder:
             self.received[guid] = prev
 
 
+def media_to_download(
+    deck: CompiledDeck, media: dict[str, MediaRecord]
+) -> tuple[MediaEntry, ...]:
+    """Deck media absent from the media table, or whose received sha256 changed."""
+    return tuple(
+        m
+        for m in deck["media"]
+        if (r := media.get(m["filename"])) is None or r.sha256 != m["sha256"]
+    )
+
+
 def make_plan(
     deck: CompiledDeck,
     sub: Subscription,
@@ -618,11 +629,7 @@ def make_plan(
         )
         return _blocked_plan(message, sub, names)
 
-    media = tuple(
-        m
-        for m in deck["media"]
-        if (r := sub.media.get(m["filename"])) is None or r.sha256 != m["sha256"]
-    )
+    media = media_to_download(deck, sub.media)
     changed = {unicodedata.normalize("NFC", m["filename"]) for m in media}
     canon = _Canon(sub.media)
     nt_actions = tuple(
