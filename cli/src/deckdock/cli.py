@@ -14,8 +14,6 @@ from deckdock.issues import print_issues
 from deckdock.source.load import load_project
 from deckdock.source.validate import validate_project
 
-COMMANDS = ("init", "validate", "build", "check")
-
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="deckdock")
@@ -23,18 +21,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--version", action="store_true", help="show version and exit"
     )
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
-    for name in COMMANDS:
-        if name in ("check", "validate", "build", "init"):
-            continue
-        # Stubs: filled in by later tasks.
-        _ = subparsers.add_parser(name, help=f"{name} (not implemented yet)")
     init = subparsers.add_parser("init", help="create a Hello World deck project")
     _ = init.add_argument(
         "target", nargs="?", default=".", help="folder to create (default: .)"
-    )
-    check = subparsers.add_parser("check", help="check compiled deckdock/1 editions")
-    _ = check.add_argument(
-        "dist", nargs="?", default="dist", help="dist directory (default: dist)"
     )
     validate = subparsers.add_parser(
         "validate", help="validate the YAML sources of a project"
@@ -50,6 +39,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _ = build_cmd.add_argument(
         "--out", default=None, help="output directory (default: ROOT/dist)"
+    )
+    check = subparsers.add_parser("check", help="check compiled deckdock/1 editions")
+    _ = check.add_argument(
+        "dist", nargs="?", default="dist", help="dist directory (default: dist)"
     )
     return parser
 
