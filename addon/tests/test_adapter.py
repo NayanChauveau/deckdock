@@ -1213,3 +1213,31 @@ def test_held_download_writes_no_media(
     assert plan.needs_full_sync_confirmation
     assert returned == installed
     assert sorted(p.name for p in Path(col.media.dir()).iterdir()) == files
+
+
+def test_retirement_with_another_tag_case_is_not_repeated(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    stock = col.models.by_name("Basic")
+    assert stock is not None
+    own = col.new_note(stock)
+    own["Front"] = "my own note"
+    own.tags = ["deckdock::deleted"]  # Anki now reuses this case for the tag
+    _ = col.add_note(own, DeckId(1))
+    installed, _ = run(col, server, sub, profile_dir)
+    v2 = build_deck("2")
+    v2["notes"] = v2["notes"][:2]
+    server.publish(v2)
+    retired, plan = run(col, server, installed, profile_dir)
+    assert plan.counts.retired == 1
+    assert must_note(col, "hw-cloze-1").tags == ["deckdock::deleted"]
+    label = user_action(col)
+
+    v3 = clone(v2)
+    v3["deck"]["version"] = "3"
+    server.publish(v3)
+    _, again = run(col, server, retired, profile_dir)
+
+    assert again.counts.retired == 0
+    assert again.note_actions == ()
+    assert col.undo_status().undo == label
