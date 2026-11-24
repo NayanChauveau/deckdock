@@ -210,3 +210,17 @@ def test_received_write_failure_stays_visible_until_an_apply_succeeds() -> None:
     assert failed_check.last_error == "received_write_failed"
     fixed = ui.record_apply(recorded, replace(failed, last_error=None), "T3")
     assert fixed.last_error is None
+
+
+def test_failure_message_names_the_subscription() -> None:
+    text = ui.failure_message(_sub(), SourceError("not_found"), "en")
+    assert text == "Hello World (en) — Not found (404)"
+    unexpected = ui.failure_message(_sub(), KeyError("boom"), "fr")
+    assert unexpected.startswith("Hello World (en) — Erreur : KeyError")
+
+
+def test_apply_changes_cover_tags_and_config() -> None:
+    changes = ui.apply_changes()
+    for name in ("card", "note", "deck", "notetype", "tag", "config"):
+        assert getattr(changes, name), name
+    assert changes.browser_table and changes.study_queues
