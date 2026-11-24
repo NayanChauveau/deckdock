@@ -175,8 +175,8 @@ def test_received_path(tmp_path: Path) -> None:
 
 def test_received_round_trip_and_file_format(tmp_path: Path) -> None:
     path = store.received_path(tmp_path, "deck-1", "fr")
-    assert store.write_received(path, "deck-1", "fr", "v1", R1)
-    assert store.read_received(path, "v1") == R1
+    assert store.write_received(path, "deck-1", "fr", "v1", R1, subscription="s1")
+    assert store.read_received(path, "v1", "s1") == R1
     text = path.read_text(encoding="utf-8")
     assert "é" in text and ", " not in text and ": " not in text
     assert json.loads(text) == {
@@ -184,6 +184,7 @@ def test_received_round_trip_and_file_format(tmp_path: Path) -> None:
         "deck_id": "deck-1",
         "edition": "fr",
         "latest": "v1",
+        "first_install": {"subscription": "s1", "base": None},
         "snapshots": {
             "v1": {"g1": {"fingerprint": "0123456789abcdef", "tags": ["t1", "é"]}}
         },
@@ -203,7 +204,7 @@ def test_received_temp_file_is_not_kept_by_check_media(
         return real(self, target)
 
     monkeypatch.setattr(Path, "replace", spy)
-    _ = store.write_received(path, "deck-1", "fr", "v1", R1)
+    _ = store.write_received(path, "deck-1", "fr", "v1", R1, subscription="s1")
     assert len(seen) == 1 and not seen[0].startswith("_")
 
 
@@ -213,65 +214,83 @@ def test_received_keeps_the_base_snapshot(tmp_path: Path) -> None:
     def versions() -> set[str]:
         return set(json.loads(path.read_text(encoding="utf-8"))["snapshots"])
 
-    _ = store.write_received(path, "deck-1", "fr", "v1", R1)
-    _ = store.write_received(path, "deck-1", "fr", "v2", R2, base="v1")
-    assert store.read_received(path, "v1") == R1
-    assert store.read_received(path, "v2") == R2
+    _ = store.write_received(path, "deck-1", "fr", "v1", R1, subscription="s1")
+    _ = store.write_received(
+        path, "deck-1", "fr", "v2", R2, subscription="s1", base="v1"
+    )
+    assert store.read_received(path, "v1", "s1") == R1
+    assert store.read_received(path, "v2", "s1") == R2
     # After an undo of v2 the base is v1 again: v1 is kept, not the latest v2.
-    _ = store.write_received(path, "deck-1", "fr", "v3", R3, base="v1")
+    _ = store.write_received(
+        path, "deck-1", "fr", "v3", R3, subscription="s1", base="v1"
+    )
     assert versions() == {"v1", "v3"}
     assert json.loads(path.read_text(encoding="utf-8"))["latest"] == "v3"
-    _ = store.write_received(path, "deck-1", "fr", "v4", R2, base="v3")
+    _ = store.write_received(
+        path, "deck-1", "fr", "v4", R2, subscription="s1", base="v3"
+    )
     assert versions() == {"v3", "v4"}
     # Rewriting the base version itself keeps the other snapshot.
-    _ = store.write_received(path, "deck-1", "fr", "v4", R1, base="v4")
+    _ = store.write_received(
+        path, "deck-1", "fr", "v4", R1, subscription="s1", base="v4"
+    )
     assert versions() == {"v3", "v4"}
-    assert store.read_received(path, "v4") == R1
+    assert store.read_received(path, "v4", "s1") == R1
     # A base that is not in the file keeps nothing else.
-    _ = store.write_received(path, "deck-1", "fr", "v5", R1, base="gone")
+    _ = store.write_received(
+        path, "deck-1", "fr", "v5", R1, subscription="s1", base="gone"
+    )
     assert versions() == {"v5"}
 
 
 def test_received_unchanged_is_not_rewritten(tmp_path: Path) -> None:
     path = store.received_path(tmp_path, "deck-1", "fr")
-    assert store.write_received(path, "deck-1", "fr", "v1", R1)
-    assert store.write_received(path, "deck-1", "fr", "v2", R2, base="v1")
+    assert store.write_received(path, "deck-1", "fr", "v1", R1, subscription="s1")
+    assert store.write_received(
+        path, "deck-1", "fr", "v2", R2, subscription="s1", base="v1"
+    )
     before = (path.stat().st_mtime_ns, path.read_bytes())
-    assert not store.write_received(path, "deck-1", "fr", "v2", R2, base="v1")
+    assert not store.write_received(
+        path, "deck-1", "fr", "v2", R2, subscription="s1", base="v1"
+    )
     assert (path.stat().st_mtime_ns, path.read_bytes()) == before
-    assert store.write_received(path, "deck-1", "fr", "v2", R1, base="v1")
+    assert store.write_received(
+        path, "deck-1", "fr", "v2", R1, subscription="s1", base="v1"
+    )
 
 
 def test_received_fresh_missing_and_fallback(tmp_path: Path) -> None:
     path = store.received_path(tmp_path, "deck-1", "fr")
-    assert store.read_received(path, None) == {}
-    assert store.read_received(path, "v1") is None
-    _ = store.write_received(path, "deck-1", "fr", "v1", {})
-    assert store.read_received(path, "v1") == {}
-    _ = store.write_received(path, "deck-1", "fr", "v2", R2, base="v1")
-    assert store.read_received(path, "v9") == R2
-    assert store.read_received(path, None) == {}
+    assert store.read_received(path, None, "s1") == {}
+    assert store.read_received(path, "v1", "s1") is None
+    _ = store.write_received(path, "deck-1", "fr", "v1", {}, subscription="s1")
+    assert store.read_received(path, "v1", "s1") == {}
+    _ = store.write_received(
+        path, "deck-1", "fr", "v2", R2, subscription="s1", base="v1"
+    )
+    assert store.read_received(path, "v9", "s1") == R2
+    assert store.read_received(path, None, "s1") == {}
     data = json.loads(path.read_text(encoding="utf-8"))
     data["latest"] = "gone"
     _ = path.write_text(json.dumps(data), encoding="utf-8")
-    assert store.read_received(path, "v9") is None
-    assert store.read_received(path, "v1") == {}
+    assert store.read_received(path, "v9", "s1") is None
+    assert store.read_received(path, "v1", "s1") == {}
 
 
 def test_received_unusable_files_read_as_none(tmp_path: Path) -> None:
     path = store.received_path(tmp_path, "deck-1", "fr")
-    _ = store.write_received(path, "deck-1", "fr", "v1", R1)
+    _ = store.write_received(path, "deck-1", "fr", "v1", R1, subscription="s1")
     good = json.loads(path.read_text(encoding="utf-8"))
 
     def check(payload: object) -> None:
         _ = path.write_text(json.dumps(payload), encoding="utf-8")
-        assert store.read_received(path, "v1") is None
-        assert store.read_received(path, None) == {}
+        assert store.read_received(path, "v1", "s1") is None
+        assert store.read_received(path, None, "s1") == {}
 
     _ = path.write_text("{not json", encoding="utf-8")
-    assert store.read_received(path, "v1") is None
+    assert store.read_received(path, "v1", "s1") is None
     _ = path.write_bytes(b"\xff\xfe")
-    assert store.read_received(path, "v1") is None
+    assert store.read_received(path, "v1", "s1") is None
     check([1])
     check({**good, "format": "deckdock-received/2"})
     check({**good, "deck_id": "other"})
@@ -282,4 +301,50 @@ def test_received_unusable_files_read_as_none(tmp_path: Path) -> None:
     check({**good, "snapshots": {"v1": {"g1": {"fingerprint": "a"}}}})
     path.unlink()
     path.mkdir()
-    assert store.read_received(path, "v1") is None
+    assert store.read_received(path, "v1", "s1") is None
+
+
+def test_received_fresh_subscription_finds_the_base_of_a_removed_one(
+    tmp_path: Path,
+) -> None:
+    path = store.received_path(tmp_path, "deck-1", "fr")
+    _ = store.write_received(path, "deck-1", "fr", "v1", R1, subscription="s1")
+    _ = store.write_received(
+        path, "deck-1", "fr", "v2", R2, subscription="s1", base="v1"
+    )
+    # Undoing the first install of s1 goes back to "nothing received".
+    assert store.read_received(path, None, "s1") == {}
+    # s1 was removed, then the same edition added again as s2: its base is back.
+    assert store.read_received(path, None, "s2") == R2
+
+    # s2 installs v3 from that base; undoing the install finds that base again.
+    _ = store.write_received(path, "deck-1", "fr", "v3", R3, subscription="s2")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["first_install"] == {"subscription": "s2", "base": "v2"}
+    assert set(data["snapshots"]) == {"v2", "v3"}
+    assert store.read_received(path, None, "s2") == R2
+    assert store.read_received(path, "v3", "s2") == R3
+    # Installing again after that undo keeps the same first install.
+    _ = store.write_received(path, "deck-1", "fr", "v3", R1, subscription="s2")
+    assert store.read_received(path, None, "s2") == R2
+    # A later update keeps the first install record.
+    _ = store.write_received(
+        path, "deck-1", "fr", "v4", R1, subscription="s2", base="v3"
+    )
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["first_install"] == {"subscription": "s2", "base": "v2"}
+    assert set(data["snapshots"]) == {"v3", "v4"}
+    # Its base snapshot is gone: an undone install then starts from nothing.
+    assert store.read_received(path, None, "s2") == {}
+    assert store.read_received(path, None, "s3") == R1
+
+
+def test_received_file_with_a_bad_first_install_is_unusable(tmp_path: Path) -> None:
+    path = store.received_path(tmp_path, "deck-1", "fr")
+    _ = store.write_received(path, "deck-1", "fr", "v1", R1, subscription="s1")
+    good = json.loads(path.read_text(encoding="utf-8"))
+    bads: list[object] = [[], {"subscription": 1, "base": None}, {"subscription": "s"}]
+    for bad in bads:
+        _ = path.write_text(json.dumps({**good, "first_install": bad}), "utf-8")
+        assert store.read_received(path, "v1", "s1") is None
+        assert store.read_received(path, None, "s2") == {}
