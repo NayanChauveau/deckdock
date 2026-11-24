@@ -24,7 +24,7 @@ dist/
 
 ## Publishing layout (optional)
 
-A deck can be served from any HTTPS base URL (`<base>`) so that clients can subscribe to it. For a GitHub repository, the template publishes the content of `dist/` at the root of the `dist` branch, so `<base>` is `https://raw.githubusercontent.com/<owner>/<repo>/dist`.
+A deck can be served from any HTTPS base URL (`<base>`) so that clients can subscribe to it. For a GitHub repository, the template publishes the content of `dist/` at the root of the `dist` branch, so `<base>` is `https://raw.githubusercontent.com/<owner>/<repo>/dist`. In the layout below `<base>` has no trailing slash; a custom base URL given to the add-on must end with `/`.
 
 ```
 <base>/index.json
