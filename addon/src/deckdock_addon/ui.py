@@ -238,6 +238,27 @@ def exception_message(exc: Exception, lang: str | None = None) -> str:
     return strings.text("ERROR_DETAIL", lang).format(detail=detail)
 
 
+def failure_message(sub: Subscription, exc: Exception, lang: str) -> str:
+    """Why the apply of `sub` failed, for the report shown after the last one."""
+    return f"{sub.name} ({sub.edition}) — {exception_message(exc, lang)}"
+
+
+def apply_changes() -> OpChanges:
+    """What an apply may change: notes, cards, decks, notetypes, tags and config."""
+    return OpChanges(
+        card=True,
+        note=True,
+        deck=True,
+        tag=True,
+        notetype=True,
+        config=True,
+        browser_table=True,
+        browser_sidebar=True,
+        note_text=True,
+        study_queues=True,
+    )
+
+
 def held_message(
     sub: Subscription, plan: Plan, confirmed: bool, lang: str
 ) -> str | None:
@@ -480,7 +501,7 @@ def _run_check(
         _set_busy(False)
         _warn_exception(exc)
 
-    query = QueryOp(parent=_parent(), op=op, success=success).failure(failure)
+    query = QueryOp(parent=_parent(), op=op, success=_guarded(success)).failure(failure)
     query = query.without_collection()
     if progress:
         query = query.with_progress()
@@ -554,7 +575,8 @@ def _start_review(
     def show(reviews: list[Review]) -> None:
         if _stale(epoch, collection):
             return
-        dialog = SummaryDialog(_parent(), reviews, install=install)
+        # Above the Manager when it is open, not behind it (a macOS sheet).
+        dialog = SummaryDialog(_dialog or _parent(), reviews, install=install)
         _track(dialog)
 
         def finished(result: int) -> None:
@@ -568,7 +590,7 @@ def _start_review(
                 _set_busy(False)
 
         # open() instead of exec(): no nested event loop inside a QueryOp callback.
-        qconnect(dialog.finished, finished)
+        qconnect(dialog.finished, _guarded(finished))
         dialog.open()
 
     def planned(fetched: list[Fetched]) -> None:
@@ -577,14 +599,14 @@ def _start_review(
         QueryOp(
             parent=_parent(),
             op=lambda col: [_plan_review(col, item) for item in fetched],
-            success=show,
+            success=_guarded(show),
         ).failure(fail).run_in_background()
 
     # The network part runs without the collection, so Anki is not blocked on it.
     query = QueryOp(
         parent=_parent(),
         op=lambda _col: [_fetch_for_review(s, transport) for s in subs],
-        success=planned,
+        success=_guarded(planned),
     ).failure(fail)
     query = query.without_collection()
     if progress:
@@ -604,15 +626,15 @@ def _apply_next(
 ) -> None:
     """Apply the reviews one after the other; stays busy until the last one.
 
-    A subscription held back at apply time (the deck changed since the summary) is
-    reported at the end, and the others still go ahead.
+    A subscription held back at apply time (the deck changed since the summary)
+    or whose apply failed is reported at the end, and the others still go ahead.
     """
     if not todo:
         _set_busy(False)
         if _dialog is not None:
             _dialog.refresh()
         if held:
-            _warn("\n\n".join(held), parent=_parent(), title=strings.WINDOW_TITLE)
+            _warn_later("\n\n".join(held))
         return
     review, rest = todo[0], todo[1:]
     sub = review.sub
@@ -630,17 +652,7 @@ def _apply_next(
             confirmed_full_sync=confirmed,
             undo_label=label,
         )
-        changes = OpChanges(
-            card=True,
-            note=True,
-            deck=True,
-            notetype=True,
-            browser_table=True,
-            browser_sidebar=True,
-            note_text=True,
-            study_queues=True,
-        )
-        return _Applied(new_sub, plan, changes)
+        return _Applied(new_sub, plan, apply_changes())
 
     def success(result: _Applied) -> None:
         if _stale(epoch, collection):
@@ -659,39 +671,73 @@ def _apply_next(
     def failure(exc: Exception) -> None:
         if _stale(epoch, collection):
             return
-        _set_busy(False)
+        _report_exception(exc)
         if isinstance(exc, SourceError):
             code = exc.code
             _update_subscription(sub.id, lambda s: replace(s, last_error=code))
-        if _dialog is not None:
-            _dialog.refresh()
-        _warn_exception(exc)
+        held.append(failure_message(sub, exc, strings.language()))
+        _apply_next(rest, collection, epoch, held)
 
     def downloaded(download: Download) -> None:
         if _stale(epoch, collection):
             return
         CollectionOp(parent=_parent(), op=lambda col: apply(col, download)).success(
-            success
-        ).failure(failure).run_in_background()
+            _guarded(success)
+        ).failure(_guarded(failure)).run_in_background()
 
     # The network runs without the collection, so Anki stays usable meanwhile;
     # the plan, the media files and the changes follow in one CollectionOp.
     QueryOp(
         parent=_parent(),
         op=lambda _col: download_update(sub, transport=transport),
-        success=downloaded,
-    ).failure(failure).without_collection().with_progress().run_in_background()
+        success=_guarded(downloaded),
+    ).failure(
+        _guarded(failure)
+    ).without_collection().with_progress().run_in_background()
 
 
-def _warn_exception(exc: Exception, parent: QWidget | None = None) -> None:
+def _warn_later(text: str) -> None:
+    """Show a warning once the current callback has returned.
+
+    Op callbacks must not open a nested event loop (`showWarning` runs
+    `exec()`): Anki would wait for the warning to close before refreshing the
+    interface and the undo menu.
+    """
+    epoch = _epoch
+
+    def show() -> None:
+        if _epoch == epoch:
+            _warn(text, parent=_dialog or _parent(), title=strings.WINDOW_TITLE)
+
+    QTimer.singleShot(0, show)
+
+
+def _report_exception(exc: Exception) -> None:
     if not isinstance(exc, SourceError | ApplyRefusedError | PartialApplyError):
         # An unexpected error: keep the traceback in Anki's console/log.
         traceback.print_exception(exc)
-    _warn(
-        exception_message(exc),
-        parent=parent or _dialog or _parent(),
-        title=strings.WINDOW_TITLE,
-    )
+
+
+def _warn_exception(exc: Exception) -> None:
+    _report_exception(exc)
+    _warn_later(exception_message(exc))
+
+
+def _guarded[T](callback: Callable[[T], None]) -> Callable[[T], None]:
+    """`callback`, but an exception it raises ends the busy state and is shown.
+
+    Without this, a failing callback would leave every button disabled until
+    the profile is reopened.
+    """
+
+    def run(value: T) -> None:
+        try:
+            callback(value)
+        except Exception as exc:  # noqa: BLE001 - shown to the user, then dropped
+            _set_busy(False)
+            _warn_exception(exc)
+
+    return run
 
 
 # --- dialogs --------------------------------------------------------------------
