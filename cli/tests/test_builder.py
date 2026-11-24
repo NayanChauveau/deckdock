@@ -62,7 +62,9 @@ def test_guid_matches_card_guid(make_project: MakeProject, tmp_path: Path):
     assert card_guid("test-deck", "hello-001", "fr") in guids
 
 
-def test_card_missing_language_is_omitted_from_that_edition(make_project: MakeProject, tmp_path: Path):
+def test_card_missing_language_is_omitted_from_that_edition(
+    make_project: MakeProject, tmp_path: Path
+):
     root = make_project({"cards/a.yaml": CARDS})
     out = tmp_path / "out"
     assert build(root, out, "v") == []
@@ -110,8 +112,16 @@ def test_media_copied_with_sha_and_size(make_project: MakeProject, tmp_path: Pat
     for edition in ("fr", "en"):
         assert (out / edition / "media" / "pic.png").read_bytes() == data
         assert not (out / edition / "media" / "unused.png").exists()
-        media = cast(list[dict[str, object]], _read(out / edition / "deck.json")["media"])
-        assert media == [{"filename": "pic.png", "sha256": sha256(data).hexdigest(), "size": len(data)}]
+        media = cast(
+            list[dict[str, object]], _read(out / edition / "deck.json")["media"]
+        )
+        assert media == [
+            {
+                "filename": "pic.png",
+                "sha256": sha256(data).hexdigest(),
+                "size": len(data),
+            }
+        ]
 
 
 def test_media_with_space_in_name(make_project: MakeProject, tmp_path: Path):
@@ -128,7 +138,9 @@ def test_media_name_collision(make_project: MakeProject, tmp_path: Path):
         "cards:\n  - id: a\n    type: basic\n"
         "    front: '![x](media/one/x.png)![y](media/two/x.png)'\n    back: B\n"
     )
-    root = make_project({"cards/a.yaml": cards, "media/one/x.png": b"1", "media/two/x.png": b"2"})
+    root = make_project(
+        {"cards/a.yaml": cards, "media/one/x.png": b"1", "media/two/x.png": b"2"}
+    )
     issues = build(root, tmp_path / "out", "v")
     assert [i.message for i in issues] == ["media name collision 'x.png'"] * 2
     assert not (tmp_path / "out").exists()
@@ -184,7 +196,10 @@ def test_mcq_choices_html(make_project: MakeProject):
     deck, _ = compile_edition(project, "fr", "v")
     notes = cast(list[dict[str, dict[str, str]]], deck["notes"])
     choices = notes[0]["fields"]["Choices"]
-    assert choices == '<ol class="dd-choices"><li>A</li><li data-correct="1">B</li><li>C</li></ol>'
+    assert (
+        choices
+        == '<ol class="dd-choices"><li>A</li><li data-correct="1">B</li><li>C</li></ol>'
+    )
     assert choices.count('data-correct="1"') == 1
 
 
@@ -225,7 +240,9 @@ def test_refuses_to_clear_foreign_directory(make_project: MakeProject, tmp_path:
     keep = foreign / "precious.txt"
     _ = keep.write_text("x")
     issues = build(root, foreign, "v")
-    assert [i.message for i in issues] == ["refusing to overwrite non-deckdock directory"]
+    assert [i.message for i in issues] == [
+        "refusing to overwrite non-deckdock directory"
+    ]
     assert keep.read_text() == "x"
 
 

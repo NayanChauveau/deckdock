@@ -35,7 +35,9 @@ def test_init_sets_deck_id_from_folder(tmp_path: Path):
 
 def test_init_explicit_deck_id(tmp_path: Path):
     init_project(tmp_path / "x", deck_id="chosen")
-    assert "\nid: chosen\n" in (tmp_path / "x" / "deckdock.yaml").read_text(encoding="utf-8")
+    assert "\nid: chosen\n" in (tmp_path / "x" / "deckdock.yaml").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_init_refuses_non_empty_dir(tmp_path: Path):
@@ -52,7 +54,9 @@ def test_init_accepts_existing_empty_dir(tmp_path: Path):
 
 def test_init_allows_existing_git_dir(tmp_path: Path):
     (tmp_path / ".git").mkdir()
-    _ = (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    _ = (tmp_path / ".git" / "HEAD").write_text(
+        "ref: refs/heads/main\n", encoding="utf-8"
+    )
     init_project(tmp_path)
     assert (tmp_path / "deckdock.yaml").is_file()
     assert (tmp_path / ".git" / "HEAD").is_file()
@@ -67,7 +71,12 @@ def test_init_refuses_git_dir_plus_other_file(tmp_path: Path):
 
 @pytest.mark.parametrize(
     ("name", "expected"),
-    [("My Deck!", "my-deck"), ("--A__b--", "a-b"), ("日本", "my-deck"), ("", "my-deck")],
+    [
+        ("My Deck!", "my-deck"),
+        ("--A__b--", "a-b"),
+        ("日本", "my-deck"),
+        ("", "my-deck"),
+    ],
 )
 def test_slugify(name: str, expected: str):
     assert slugify(name) == expected
@@ -88,13 +97,17 @@ def test_dotfiles_renamed(tmp_path: Path):
 def test_claude_md_points_to_agents(tmp_path: Path):
     init_project(tmp_path)
     claude = tmp_path / "CLAUDE.md"
-    assert claude.read_text(encoding="utf-8") == (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    assert claude.read_text(encoding="utf-8") == (tmp_path / "AGENTS.md").read_text(
+        encoding="utf-8"
+    )
     assert claude.is_symlink()
 
 
 def test_workflow_uses_pinned_action(tmp_path: Path):
     init_project(tmp_path)
-    workflow = (tmp_path / ".github" / "workflows" / "deck.yml").read_text(encoding="utf-8")
+    workflow = (tmp_path / ".github" / "workflows" / "deck.yml").read_text(
+        encoding="utf-8"
+    )
     assert "NayanChauveau/deckdock/action@v1" in workflow
     assert "secrets." not in "\n".join(
         line for line in workflow.splitlines() if not line.lstrip().startswith("#")
@@ -123,7 +136,9 @@ def test_doc_card_examples_are_valid(tmp_path: Path, doc: str):
     blocks = re.findall(r"```yaml\n(.*?)```", text, flags=re.DOTALL)
     assert blocks or doc != "AGENTS.md"
     for i, block in enumerate(blocks):
-        _ = (tmp_path / "cards" / f"doc{i}.yaml").write_text("cards:\n" + block, encoding="utf-8")
+        _ = (tmp_path / "cards" / f"doc{i}.yaml").write_text(
+            "cards:\n" + block, encoding="utf-8"
+        )
     project, issues = load_project(tmp_path)
     assert issues == []
     assert project is not None

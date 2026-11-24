@@ -6,7 +6,9 @@ Standard library only: this module is embedded into an Anki add-on later.
 import hashlib
 import string
 
-_TABLE = string.ascii_letters + string.digits + "!#$%&()*+,-./:;<=>?@[]^_`{|}~"  # 91 chars
+_TABLE = (
+    string.ascii_letters + string.digits + "!#$%&()*+,-./:;<=>?@[]^_`{|}~"
+)  # 91 chars
 
 
 def guid_for(*values: str) -> str:

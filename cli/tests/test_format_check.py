@@ -24,7 +24,10 @@ def messages(data: object) -> str:
 
 
 def write_dist(
-    tmp_path: pathlib.Path, data: Deck, files: dict[str, bytes] | None = None, edition: str = "en"
+    tmp_path: pathlib.Path,
+    data: Deck,
+    files: dict[str, bytes] | None = None,
+    edition: str = "en",
 ) -> pathlib.Path:
     dist = tmp_path / "dist"
     (dist / edition / "media").mkdir(parents=True)
@@ -35,7 +38,13 @@ def write_dist(
 
 
 def with_media(data: Deck, name: str, content: bytes) -> Deck:
-    data["media"] = [{"filename": name, "sha256": hashlib.sha256(content).hexdigest(), "size": len(content)}]
+    data["media"] = [
+        {
+            "filename": name,
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "size": len(content),
+        }
+    ]
     return data
 
 
@@ -96,7 +105,9 @@ def test_language_must_be_non_empty_list(language: object):
     assert "language" in messages(data)
 
 
-@pytest.mark.parametrize("options", [{"extra": 1}, {"new_per_day": -1}, {"new_per_day": True}, []])
+@pytest.mark.parametrize(
+    "options", [{"extra": 1}, {"new_per_day": -1}, {"new_per_day": True}, []]
+)
 def test_options_keys_and_values(options: object):
     data = minimal()
     cast(Deck, data["deck"])["options"] = options
@@ -138,7 +149,9 @@ def first_valid_with_image() -> Deck:
 
 
 def test_check_dist_media_sha_mismatch(tmp_path: pathlib.Path):
-    dist = write_dist(tmp_path, with_media(minimal(), "x.png", b"png"), {"x.png": b"PNG"})
+    dist = write_dist(
+        tmp_path, with_media(minimal(), "x.png", b"png"), {"x.png": b"PNG"}
+    )
     issues = check_dist(dist)
     assert any("sha256 mismatch" in i.message for i in issues)
     assert not any("size mismatch" in i.message for i in issues)
@@ -152,7 +165,9 @@ def test_check_dist_media_size_mismatch(tmp_path: pathlib.Path):
 
 
 def test_check_dist_unlisted_and_missing_media(tmp_path: pathlib.Path):
-    dist = write_dist(tmp_path, with_media(minimal(), "listed.png", b"a"), {"stray.png": b"b"})
+    dist = write_dist(
+        tmp_path, with_media(minimal(), "listed.png", b"a"), {"stray.png": b"b"}
+    )
     text = "\n".join(i.message for i in check_dist(dist))
     assert "not listed" in text
     assert "missing file" in text
@@ -185,7 +200,9 @@ def test_references_in_templates_and_css(tmp_path: pathlib.Path):
     data = minimal()
     notetype = cast(list[dict[str, object]], data["notetypes"])[0]
     notetype["css"] = ".a { background: url(bg.png) }"
-    cast(list[dict[str, str]], notetype["templates"])[0]["front"] = '{{Front}}<img src="t.png">'
+    cast(list[dict[str, str]], notetype["templates"])[0]["front"] = (
+        '{{Front}}<img src="t.png">'
+    )
     text = "\n".join(i.message for i in check_dist(write_dist(tmp_path, data)))
     assert "references unlisted media 'bg.png'" in text
     assert "references unlisted media 't.png'" in text
@@ -225,7 +242,9 @@ def test_check_dist_issue_path_and_json_path(tmp_path: pathlib.Path):
     data = minimal()
     del cast(dict[str, str], first_note(data)["fields"])["Back"]
     issues = check_dist(write_dist(tmp_path, data))
-    assert [str(i) for i in issues] == ["dist/en/deck.json: notes[0].fields: missing field 'Back'"]
+    assert [str(i) for i in issues] == [
+        "dist/en/deck.json: notes[0].fields: missing field 'Back'"
+    ]
 
 
 def test_check_dist_checks_every_edition(tmp_path: pathlib.Path):
@@ -238,7 +257,9 @@ def test_check_dist_checks_every_edition(tmp_path: pathlib.Path):
     assert [i.path for i in issues] == ["dist/fr/deck.json"]
 
 
-def test_cli_check_exit_codes(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]):
+def test_cli_check_exit_codes(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+):
     good = write_dist(tmp_path / "good", minimal())
     assert main(["check", str(good)]) == 0
     assert capsys.readouterr().err == ""
@@ -249,7 +270,9 @@ def test_cli_check_exit_codes(tmp_path: pathlib.Path, capsys: pytest.CaptureFixt
     assert "unknown key 'extra'" in capsys.readouterr().err
 
 
-def test_cli_check_defaults_to_dist(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch):
+def test_cli_check_defaults_to_dist(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
     _ = write_dist(tmp_path, minimal())
     monkeypatch.chdir(tmp_path)
     assert main(["check"]) == 0
@@ -290,9 +313,15 @@ def test_check_dist_strict_flag(tmp_path: pathlib.Path):
 
 @pytest.mark.parametrize(
     ("filename", "text"),
-    [("a&b.png", '<img src="a&amp;b.png">'), ("a b.png", '<img src="a%20b.png">'), ("a b.png", '<img src="a b.png">')],
+    [
+        ("a&b.png", '<img src="a&amp;b.png">'),
+        ("a b.png", '<img src="a%20b.png">'),
+        ("a b.png", '<img src="a b.png">'),
+    ],
 )
-def test_references_are_unescaped_and_unquoted(tmp_path: pathlib.Path, filename: str, text: str):
+def test_references_are_unescaped_and_unquoted(
+    tmp_path: pathlib.Path, filename: str, text: str
+):
     data = with_media(minimal(), filename, b"x")
     cast(dict[str, str], first_note(data)["fields"])["Front"] = text
     assert check_dist(write_dist(tmp_path, data, {filename: b"x"})) == []
@@ -328,4 +357,6 @@ def test_edition_must_not_be_a_path(edition: str):
 def test_edition_must_match_directory(tmp_path: pathlib.Path):
     dist = write_dist(tmp_path, minimal(), edition="fr")
     issues = check_dist(dist)
-    assert [i.message for i in issues] == ["deck.edition 'en' does not match directory 'fr'"]
+    assert [i.message for i in issues] == [
+        "deck.edition 'en' does not match directory 'fr'"
+    ]

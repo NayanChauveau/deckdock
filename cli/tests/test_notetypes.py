@@ -20,7 +20,9 @@ def templates_of(notetype: dict[str, object]) -> list[dict[str, str]]:
 
 
 @pytest.mark.parametrize(("card_type", "name", "kind", "fields", "count"), TABLE)
-def test_table_values(card_type: str, name: str, kind: str, fields: list[str], count: int):
+def test_table_values(
+    card_type: str, name: str, kind: str, fields: list[str], count: int
+):
     notetype = notetype_for(card_type, "en")
     assert notetype["id"] == card_type
     assert notetype["name"] == name
@@ -71,9 +73,23 @@ def test_output_passes_check_deck(card_type: str):
     fields = {name: "<p>x</p>" for name in cast(list[str], notetype["fields"])}
     data: dict[str, object] = {
         "format": "deckdock/1",
-        "deck": {"id": "t", "edition": "en", "name": "T", "language": ["en"], "version": "dev"},
+        "deck": {
+            "id": "t",
+            "edition": "en",
+            "name": "T",
+            "language": ["en"],
+            "version": "dev",
+        },
         "notetypes": [notetype],
-        "notes": [{"guid": "abc123", "notetype": card_type, "deck": "", "fields": fields, "tags": []}],
+        "notes": [
+            {
+                "guid": "abc123",
+                "notetype": card_type,
+                "deck": "",
+                "fields": fields,
+                "tags": [],
+            }
+        ],
         "media": [],
     }
     assert check_deck(data, strict=True) == []
