@@ -16,6 +16,8 @@ from pydantic import (
 from pydantic.json_schema import models_json_schema
 from pydantic_core import InitErrorDetails, PydanticCustomError
 
+from deckdock.format import SLUG_RE
+
 CardType = Literal["basic", "reversed", "cloze", "mcq"]
 
 
@@ -39,9 +41,13 @@ class ProjectConfig(BaseModel):
 
     @field_validator("editions")
     @classmethod
-    def _unique_editions(cls, value: list[str]) -> list[str]:
+    def _check_editions(cls, value: list[str]) -> list[str]:
         seen: set[str] = set()
         for code in value:
+            if not SLUG_RE.fullmatch(code):
+                raise ValueError(
+                    f"invalid edition code {code!r} (lowercase letters, digits and single dashes)"
+                )
             if code in seen:
                 raise ValueError(f"duplicate edition '{code}'")
             seen.add(code)

@@ -184,3 +184,15 @@ def test_mcq_content_model():
 
 def test_source_schema_up_to_date():
     assert json.loads(SCHEMA_PATH.read_text(encoding="utf-8")) == source_json_schema()
+
+
+@pytest.mark.parametrize("code", ["../../escaped", "/tmp/abs", "FR", "a/b", "", "fr\n"])
+def test_edition_codes_must_be_slugs(make_project: MakeProject, code: str):
+    config = f"id: x\nname: X\neditions: [fr, {json.dumps(code)}]\n"
+    _, issues = load_project(
+        make_project({"deckdock.yaml": config, "cards/a.yaml": TWO_CARDS})
+    )
+    assert [str(i) for i in issues] == [
+        f"deckdock.yaml: editions: Value error, invalid edition code {code!r} "
+        + "(lowercase letters, digits and single dashes)"
+    ]

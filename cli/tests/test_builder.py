@@ -316,3 +316,23 @@ def test_builder_guards_media_even_without_validation(
     issues = build(root, out, "v")
     assert {i.message for i in issues} == {message}
     assert not out.exists()
+
+
+@pytest.mark.parametrize("absolute", [False, True])
+def test_edition_code_cannot_escape_out(tmp_path: Path, absolute: bool):
+    escaped = tmp_path / "escaped"
+    code = str(escaped) if absolute else "../../escaped"
+    root = tmp_path / "a" / "proj"
+    (root / "cards").mkdir(parents=True)
+    _ = (root / "deckdock.yaml").write_text(
+        f"id: x\nname: X\neditions: [{json.dumps(code)}]\n", encoding="utf-8"
+    )
+    _ = (root / "cards" / "a.yaml").write_text(
+        "cards:\n  - id: a\n    type: basic\n    front: F\n    back: B\n",
+        encoding="utf-8",
+    )
+    issues = build(root, root / "dist", "v")
+    assert len(issues) == 1
+    assert "invalid edition code" in issues[0].message
+    assert not escaped.exists()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["a"]
