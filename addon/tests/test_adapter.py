@@ -1121,3 +1121,27 @@ def test_undoing_the_first_install_lets_it_be_installed_again(
     assert plan.counts.created == 3
     assert plan.skipped == ()
     assert col.note_count() == 3
+
+
+def test_catalog_rolled_back_by_sync_still_updates_notes(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    v1_sub, _ = run(col, server, sub, profile_dir)
+    v2 = build_deck("2")
+    v2["notes"][1]["fields"]["Back"] = "chatte"
+    server.publish(v2)
+    _ = run(col, server, v1_sub, profile_dir)
+    # Another computer's older catalog won the config sync: v1 again.
+    write_catalog(col, Catalog((replace(v1_sub, received={}),)))
+    (lagging,) = read_catalog(col).subscriptions
+    assert lagging.installed_version == "1"
+
+    v3 = build_deck("3")
+    v3["notes"][1]["fields"]["Back"] = "minou"
+    server.publish(v3)
+    updated, plan = run(col, server, lagging, profile_dir)
+
+    assert plan.skipped == ()
+    assert plan.counts.updated == 1
+    assert must_note(col, "hw-reversed-1")["Back"] == "minou"
+    assert updated.installed_version == "3"
