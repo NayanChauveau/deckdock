@@ -485,7 +485,14 @@ def _check_edition(edition_dir: Path, display: str, *, strict: bool) -> list[Iss
             )
 
     if media_dir.is_dir():
-        for file in sorted(media_dir.iterdir()):
+        try:
+            on_disk = sorted(media_dir.iterdir())
+        except OSError as exc:
+            on_disk = []
+            issues.append(
+                Issue(display, f"media: cannot read directory: {exc.strerror or exc}")
+            )
+        for file in on_disk:
             if file.name not in listed:
                 issues.append(
                     Issue(display, f"media/{file.name}: file not listed in 'media'")
@@ -504,7 +511,10 @@ def check_dist(dist_dir: Path, *, strict: bool = True) -> list[Issue]:
     """Check every `<dist_dir>/<edition>/deck.json`, including media files and references."""
     if not dist_dir.is_dir():
         return [Issue(str(dist_dir), "not a directory")]
-    editions = sorted(p for p in dist_dir.iterdir() if (p / "deck.json").is_file())
+    try:
+        editions = sorted(p for p in dist_dir.iterdir() if (p / "deck.json").is_file())
+    except OSError as exc:
+        return [Issue(str(dist_dir), f"cannot read directory: {exc.strerror or exc}")]
     if not editions:
         return [Issue(str(dist_dir), "no editions found")]
     root_name = dist_dir.resolve().name

@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import json
+import os
 import pathlib
 from typing import cast
 
@@ -359,4 +360,36 @@ def test_edition_must_match_directory(tmp_path: pathlib.Path):
     issues = check_dist(dist)
     assert [i.message for i in issues] == [
         "deck.edition 'en' does not match directory 'fr'"
+    ]
+
+
+def _unreadable(path: pathlib.Path) -> None:
+    path.chmod(0)
+    if os.access(path, os.R_OK):  # e.g. running as root
+        path.chmod(0o755)
+        pytest.skip("permissions are not enforced")
+
+
+def test_check_dist_unreadable_dist_dir(tmp_path: pathlib.Path):
+    dist = write_dist(tmp_path, minimal())
+    _unreadable(dist)
+    try:
+        issues = check_dist(dist)
+    finally:
+        dist.chmod(0o755)
+    assert len(issues) == 1
+    assert issues[0].path == str(dist)
+    assert issues[0].message.startswith("cannot read directory:")
+
+
+def test_check_dist_unreadable_media_dir(tmp_path: pathlib.Path):
+    dist = write_dist(tmp_path, minimal())
+    media = dist / "en" / "media"
+    _unreadable(media)
+    try:
+        issues = check_dist(dist)
+    finally:
+        media.chmod(0o755)
+    assert [i.message for i in issues] == [
+        f"media: cannot read directory: {os.strerror(13)}"
     ]

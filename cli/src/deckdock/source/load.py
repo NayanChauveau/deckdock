@@ -19,8 +19,9 @@ def load_project(root: Path) -> tuple[Project | None, list[Issue]]:
     issues: list[Issue] = []
     config = _load_config(root, issues)
     cards: list[LoadedCard] = []
-    files = _card_files(root)
-    if not files:
+    unreadable = len(issues)
+    files = _card_files(root, issues)
+    if not files and len(issues) == unreadable:
         issues.append(Issue(CARDS_DIR, "no card files found"))
     for rel in files:
         cards.extend(_load_cards_file(root, rel, issues))
@@ -29,14 +30,36 @@ def load_project(root: Path) -> tuple[Project | None, list[Issue]]:
     return Project(root=root, config=config, cards=cards), issues
 
 
-def _card_files(root: Path) -> list[str]:
+def _card_files(root: Path, issues: list[Issue]) -> list[str]:
     base = root / CARDS_DIR
-    if not base.is_dir():
-        return []
-    found = (
-        p for p in base.rglob("*") if p.suffix in (".yaml", ".yml") and p.is_file()
-    )
+    errors: list[OSError] = []
+    try:
+        if not base.is_dir():
+            return []
+        found = [
+            folder / name
+            for folder, _, names in base.walk(on_error=errors.append)
+            for name in names
+            if name.endswith((".yaml", ".yml")) and (folder / name).is_file()
+        ]
+    except OSError as exc:
+        errors.append(exc)
+        found = []
+    for exc in errors:
+        issues.append(
+            Issue(_display(root, exc), f"cannot read directory: {exc.strerror or exc}")
+        )
     return sorted(p.relative_to(root).as_posix() for p in found)
+
+
+def _display(root: Path, exc: OSError) -> str:
+    filename = cast(object, exc.filename)
+    if not isinstance(filename, str):
+        return CARDS_DIR
+    try:
+        return Path(filename).relative_to(root).as_posix()
+    except ValueError:
+        return filename
 
 
 def _yaml_issue(rel: str, exc: yaml.YAMLError) -> Issue:

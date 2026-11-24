@@ -143,3 +143,12 @@ def test_doc_card_examples_are_valid(tmp_path: Path, doc: str):
     assert issues == []
     assert project is not None
     assert validate_project(project) == []
+
+
+def test_cli_init_under_a_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
+    file = tmp_path / "file"
+    _ = file.write_text("x")
+    assert main(["init", str(file / "sub")]) == 1
+    err = capsys.readouterr().err
+    assert "Traceback" not in err
+    assert err.startswith(f"{file / 'sub'}: cannot create project:")
