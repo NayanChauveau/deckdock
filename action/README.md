@@ -1,47 +1,37 @@
 # DeckDock GitHub Action
 
-Runs the [DeckDock](../README.md) CLI in a workflow: validate a deck repository, build it into the `deckdock/1` format, or check a built `dist/`.
+Runs the [DeckDock](../README.md) reference checker in a workflow: checks a compiled `dist/` against the `deckdock/1` format. The step fails if any error is found.
+
+The Action does not compile anything. Compile your deck with your own tool (for example [deckdock-template](https://github.com/NayanChauveau/deckdock-template)), then check the output.
 
 ## Usage
 
 ```yaml
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set deck version
-        run: echo "DECKDOCK_VERSION=$(date -u +%Y-%m-%dT%H:%M:%SZ)+${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+      # ... compile your deck into dist/<edition>/deck.json here ...
 
-      - uses: NayanChauveau/deckdock/action@v1
+      - uses: NayanChauveau/deckdock/action@v2
         with:
-          command: build
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: deck
-          path: dist/
+          path: dist
 ```
-
-`build` reads the `DECKDOCK_VERSION` environment variable (default `dev`).
 
 ## Inputs
 
 | Input | Default | Description |
 | --- | --- | --- |
-| `command` | `build` | `validate`, `build` or `check`. |
-| `path` | `.` | Deck repository root. |
-| `deckdock-ref` | empty | Git ref of the DeckDock repository to install the CLI from. Empty means the ref the action was called with (`@v1`). `local` installs the CLI from the checkout containing this action (used by the monorepo CI). |
+| `command` | `check` | The DeckDock command to run. Only `check` is supported; anything else fails with an error. |
+| `path` | `dist` | Compiled dist folder (contains `<edition>/deck.json`). |
+| `deckdock-ref` | empty | Git ref of the DeckDock repository to install the CLI from. Empty means the ref the action was called with (`@v2`). `local` installs the CLI from the checkout containing this action (used by the monorepo CI). |
 
-## How `command` and `path` map to the CLI
+## What it runs
 
-| `command` | Runs |
-| --- | --- |
-| `validate` | `deckdock validate <path>` |
-| `build` | `deckdock build <path>` (output goes to `<path>/dist`) |
-| `check` | `deckdock check <path>/dist` |
+`deckdock check <path>`, in strict mode.
 
 ## Pinning
 
-Reference the action with a major tag (`@v1`) to get compatible updates, or with a full tag or commit SHA for fully reproducible builds. The CLI is installed from the same ref as the action, so the action and the CLI always match. If the ref cannot be determined and `deckdock-ref` is not set, the action fails rather than installing an unpinned version.
+Reference the action with a major tag (`@v2`) to get compatible updates, or with a full tag or commit SHA for fully reproducible builds. The CLI is installed from the same ref as the action, so the action and the CLI always match. If the ref cannot be determined and `deckdock-ref` is not set, the action fails rather than installing an unpinned version.

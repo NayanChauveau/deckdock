@@ -15,9 +15,16 @@ def test_unknown_command_exits_2():
     assert exc.value.code == 2
 
 
-def test_help_lists_the_four_commands(capsys: pytest.CaptureFixture[str]):
+def test_help_lists_only_check(capsys: pytest.CaptureFixture[str]):
     assert main([]) == 0
     out = capsys.readouterr().out
-    for command in ("init", "validate", "build", "check"):
-        assert command in out
-    assert "not implemented" not in out
+    assert "check" in out
+    for removed in ("init", "validate", "build"):
+        assert removed not in out
+
+
+@pytest.mark.parametrize("command", ["init", "validate", "build"])
+def test_removed_commands_exit_2(command: str):
+    with pytest.raises(SystemExit) as exc:
+        _ = main([command])
+    assert exc.value.code == 2

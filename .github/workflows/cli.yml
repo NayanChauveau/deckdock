@@ -26,13 +26,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - name: Scaffold a deck
-        run: uvx --from ./cli deckdock init /tmp/hello
-      - name: Build with the local action
+      - name: Build a valid dist from the minimal example
+        run: |
+          mkdir -p /tmp/dist/en
+          cp spec/examples/valid/minimal.json /tmp/dist/en/deck.json
+      - name: Check the valid dist with the local action
         uses: ./action
         with:
-          command: build
-          path: /tmp/hello
+          path: /tmp/dist
           deckdock-ref: local
-      - name: Check the build output
-        run: uvx --from ./cli deckdock check /tmp/hello/dist
+      - name: Build an invalid dist
+        run: |
+          mkdir -p /tmp/bad/en
+          cp spec/examples/invalid/duplicate-guid.json /tmp/bad/en/deck.json
+      - name: Check the invalid dist (must fail)
+        id: must-fail
+        continue-on-error: true
+        uses: ./action
+        with:
+          path: /tmp/bad
+          deckdock-ref: local
+      - name: Assert the invalid dist was rejected
+        if: steps.must-fail.outcome != 'failure'
+        run: |
+          echo "::error::The action accepted an invalid dist"
+          exit 1

@@ -1,7 +1,7 @@
 # deckdock/1: compiled deck format
 
-`deckdock/1` is the format a deck is compiled to. It is the contract between the
-builder (`deckdock build`), the checker (`deckdock check`), a future hub and a
+`deckdock/1` is the format a deck is compiled to. It is the contract between
+compilers (any tool that produces it), the checker (`deckdock check`), a future hub and a
 future Anki add-on. Machine-readable parts: [`deckdock-1.schema.json`](deckdock-1.schema.json)
 (structure only) and [`examples/`](examples/) (`valid/` and `invalid/`).
 
@@ -77,7 +77,7 @@ syntax (`{{Field}}`, `{{cloze:Text}}`, `{{FrontSide}}`). JavaScript is allowed i
 | `fields` | object | yes | Keys are exactly the notetype's fields; values are HTML strings. |
 | `tags` | list of string | yes | Each tag is non-empty and contains no whitespace. |
 
-Field values are HTML: Markdown and other sources are already rendered at build time.
+Field values are HTML: Markdown and other sources are already rendered by the compiler.
 
 ### `media[]`
 
@@ -90,7 +90,7 @@ Field values are HTML: Markdown and other sources are already rendered at build 
 ## Identity and uniqueness
 
 - (`deck.id`, `deck.edition`) identifies an update stream. Global uniqueness (owner prefix, etc.) is assigned by the hub.
-- `notes[].guid` is the Anki GUID (`deckdock build` derives it from the deck id, card id and edition: see [`deckdock-source-1.md`](deckdock-source-1.md#guids-and-permanence)). It is unique **within a file** and must stay stable between versions: it is the update key, and keeping it preserves scheduling. The same GUID may appear in several editions of the same deck. In an Anki collection a GUID is globally unique, so the add-on must prevent subscribing to two editions that share GUIDs, or offer to switch from one to the other.
+- `notes[].guid` is the Anki GUID (a compiler SHOULD derive it deterministically, for example from the deck id, a card id and the edition). It is unique **within a file** and must stay stable between versions: it is the update key, and keeping it preserves scheduling. The same GUID may appear in several editions of the same deck. In an Anki collection a GUID is globally unique, so the add-on must prevent subscribing to two editions that share GUIDs, or offer to switch from one to the other.
 - `notetypes[].id` is a stable slug local to the deck. Numeric Anki ids are derived by the add-on unless `anki_id` is given.
 - `deck.version` is opaque; ordering of versions is the hub's business (order of receipt).
 
@@ -128,29 +128,39 @@ The JSON Schema encodes the **structural** rules only (it always forbids unknown
 
 `deckdock check [DIST]` (default `dist`) checks every `<DIST>/<edition>/deck.json`, prints one error per line as `<path>: <JSON path>: <message>` (for example `dist/fr/deck.json: notes[3].fields: missing field 'Back'`) and exits with 1 if there is any error, 0 otherwise.
 
-## Producing a deck from Python
+## Writing your own compiler
 
-A custom generator does not have to use the YAML sources. The `deckdock.format` module
-(standard library only) provides `TypedDict` models of this format (`CompiledDeck`, `Deck`,
-`DeckOptions`, `Notetype`, `Template`, `Note`, `MediaEntry`) and the reference checker:
+Any language or tool can produce `deckdock/1`: the format is plain JSON plus a `media/` folder. A compiler:
+
+- **MUST** give every note a GUID that is unique within its file and stable across versions (it is the update key);
+- **MUST** keep `deck.id`, edition codes and `notetypes[].id` permanent, since changing one resets the users' review history;
+- **MUST** use flat media filenames (no `/`, no `\`);
+- **MUST** produce output that passes `deckdock check` in strict mode;
+- **SHOULD** write `dist/<edition>/deck.json` as UTF-8 with `ensure_ascii=False`, with media in `dist/<edition>/media/`.
+
+In Python, the standard-library-only `deckdock` package helps: `deckdock.format` provides `TypedDict` models of this format (`CompiledDeck`, `Deck`, `DeckOptions`, `Notetype`, `Template`, `Note`, `MediaEntry`) and the reference checker, and `deckdock.guid.guid_for` derives GUIDs the way genanki does.
 
 ```python
-from deckdock.format import CompiledDeck, check_deck, check_dist
+from pathlib import Path
 
-deck: CompiledDeck = {...}  # built with these models
+from deckdock.format import CompiledDeck, check_deck, check_dist
+from deckdock.guid import guid_for
+
+deck: CompiledDeck = {...}  # built with these models; use guid_for(...) for note GUIDs
 assert check_deck(deck) == []
-# write dist/<edition>/deck.json (UTF-8, ensure_ascii=False) and dist/<edition>/media/,
-# then run check_dist(Path("dist")) or `deckdock check dist`.
+# write dist/<edition>/deck.json and dist/<edition>/media/, then:
+assert check_dist(Path("dist")) == []  # same as `deckdock check dist`
 ```
 
-The models describe the structure only; the rules above (slugs, uniqueness, limits, media)
-are enforced by `check_deck` and `check_dist`.
+The models describe the structure only; the rules above (slugs, uniqueness, limits, media) are enforced by `check_deck` and `check_dist`.
+
+[deckdock-template](https://github.com/NayanChauveau/deckdock-template) is a complete example compiler (YAML cards to `deckdock/1`).
 
 ## Compatibility
 
 `format` carries the major version. Adding an optional key stays in `deckdock/1`; a breaking change becomes `deckdock/2`. Consumers must reject a `format` they do not know.
 
-Unknown keys are handled by validation mode. Producers (`deckdock check`, the builder) validate in **strict** mode, which rejects unknown keys to catch typos. Consumers (the hub, the add-on) **MUST** validate in **non-strict** mode (`strict=False` in the reference checker), which ignores unknown keys so that optional additions to `deckdock/1` do not break older consumers, while still enforcing every other rule.
+Unknown keys are handled by validation mode. Producers (compilers, `deckdock check`) validate in **strict** mode, which rejects unknown keys to catch typos. Consumers (the hub, the add-on) **MUST** validate in **non-strict** mode (`strict=False` in the reference checker), which ignores unknown keys so that optional additions to `deckdock/1` do not break older consumers, while still enforcing every other rule.
 
 ## Example
 

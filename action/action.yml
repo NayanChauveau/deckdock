@@ -1,5 +1,5 @@
 name: DeckDock
-description: Validate, build or check an Anki deck repository with the DeckDock CLI.
+description: Check a compiled deckdock/1 dist with the DeckDock reference checker.
 author: NayanChauveau
 branding:
   icon: package
@@ -7,13 +7,13 @@ branding:
 
 inputs:
   command:
-    description: "DeckDock command to run: validate, build or check."
+    description: "DeckDock command to run. Only check is supported."
     required: false
-    default: build
+    default: check
   path:
-    description: "Deck repository root (for check, the dist folder is <path>/dist)."
+    description: "Compiled dist folder to check (contains <edition>/deck.json)."
     required: false
-    default: "."
+    default: dist
   deckdock-ref:
     description: "Git ref of NayanChauveau/deckdock to install the CLI from. Empty means the ref this action was called with. Use 'local' to install the CLI from the checkout next to this action (monorepo CI)."
     required: false
@@ -48,11 +48,9 @@ runs:
         fi
 
         case "$DD_COMMAND" in
-          validate) ARGS=(validate "$DD_PATH") ;;
-          build)    ARGS=(build "$DD_PATH") ;;
-          check)    ARGS=(check "$DD_PATH/dist") ;;
+          check) ARGS=(check "$DD_PATH") ;;
           *)
-            echo "::error::Unknown command '$DD_COMMAND' (expected validate, build or check)."
+            echo "::error::Unknown command '$DD_COMMAND' (only 'check' is supported)."
             exit 1
             ;;
         esac

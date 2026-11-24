@@ -1,35 +1,49 @@
 # deckdock
 
-deckdock is a toolchain that compiles Anki decks written as YAML into a
-JSON format (`deckdock/1`) that can be published, checked and imported.
+deckdock defines `deckdock/1`, a JSON format for Anki decks that can be
+published, checked and imported, and ships its reference checker: the format plus
+a verifier. It does not compile decks itself; to write one from YAML, start from
+[deckdock-template](https://github.com/NayanChauveau/deckdock-template).
 
 ## Layout
 
-- `cli/` - the `deckdock` command-line tool (Python, MIT).
-- `spec/` - the `deckdock/1` compiled format ([`deckdock-1.md`](spec/deckdock-1.md)), the
-  source format ([`deckdock-source-1.md`](spec/deckdock-source-1.md)), JSON Schemas and
-  examples (MIT).
-- `action/` - a composite GitHub Action that runs the CLI in a deck repository (MIT).
+- `cli/` - the `deckdock` checker and Python library (standard library only, MIT).
+- `spec/` - the `deckdock/1` format ([`deckdock-1.md`](spec/deckdock-1.md)), its JSON Schema
+  and examples (MIT).
+- `action/` - a composite GitHub Action that runs `deckdock check` (MIT).
 - `hub/` and `addon/` - added later (AGPL-3.0-or-later).
 
 ## Usage
 
-Run the CLI without installing it (needs [uv](https://docs.astral.sh/uv/)):
+Run the checker without installing it (needs [uv](https://docs.astral.sh/uv/)):
 
 ```sh
-uvx --from git+https://github.com/NayanChauveau/deckdock@v1#subdirectory=cli deckdock <command>
+uvx --from git+https://github.com/NayanChauveau/deckdock@v2#subdirectory=cli deckdock check dist
 ```
 
 | Command | What it does |
 | --- | --- |
-| `deckdock init [DIR]` | Create a Hello World deck project in `DIR` (default `.`). |
-| `deckdock validate [ROOT]` | Check the YAML sources of the project in `ROOT`. |
-| `deckdock build [ROOT] [--out DIR]` | Compile every edition into `DIR/<edition>/deck.json` and `media/` (default `ROOT/dist`). |
-| `deckdock check [DIST]` | Check compiled editions against `deckdock/1` (default `dist`). |
+| `deckdock check [DIST]` | Check compiled editions (`DIST/<edition>/deck.json` and `media/`) against `deckdock/1` (default `dist`). |
+| `deckdock --version` | Show the version. |
 
-Errors are printed as `<path>:<line>: <message>`; the exit code is 1 on error, 0 otherwise.
-A ready-made deck repository lives at
-[NayanChauveau/deckdock-template](https://github.com/NayanChauveau/deckdock-template).
+Errors are printed as `<path>: <JSON path>: <message>`; the exit code is 1 on error, 0 otherwise.
+
+### GitHub Action
+
+```yaml
+- uses: NayanChauveau/deckdock/action@v2
+  with:
+    path: dist
+```
+
+See [`action/README.md`](action/README.md).
+
+### Writing a compiler
+
+Any tool can produce `deckdock/1`. See "Writing your own compiler" in
+[`spec/deckdock-1.md`](spec/deckdock-1.md). [deckdock-template](https://github.com/NayanChauveau/deckdock-template)
+is a ready-made deck repository and example compiler (YAML to `deckdock/1`); it depends on the
+`deckdock` Python library (`deckdock.format`, `deckdock.guid`, `deckdock.issues`).
 
 ## Development
 
