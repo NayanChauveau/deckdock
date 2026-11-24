@@ -24,7 +24,7 @@ dist/
 
 ## Objects
 
-Unknown keys are rejected in every object, to catch typos. "Required" means the key must be present.
+In **strict** mode (producers, `deckdock check`), unknown keys are rejected in every object, to catch typos; consumers validate in non-strict mode and ignore them (see [Compatibility](#compatibility)). "Required" means the key must be present.
 
 ### Top level
 
