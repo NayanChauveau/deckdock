@@ -38,3 +38,16 @@ def test_cloze_and_accents_survive():
         render("La {{c1::Côte-d’Or}} & <b>Beaune</b>")[0]
         == "La {{c1::Côte-d’Or}} &amp; <b>Beaune</b>"
     )
+
+
+def test_reference_style_image_collected():
+    html, media = render("![x][r]\n\n[r]: media/../secret.txt")
+    assert media == {"media/../secret.txt"}
+    assert 'src="secret.txt"' in html
+
+
+def test_local_non_media_paths_collected_but_not_rewritten():
+    html, media = render('![a](img/a.png) <img src="/abs.png"> <img src="//cdn/x.png">')
+    assert media == {"img/a.png", "/abs.png"}
+    assert 'src="img/a.png"' in html
+    assert 'src="/abs.png"' in html
