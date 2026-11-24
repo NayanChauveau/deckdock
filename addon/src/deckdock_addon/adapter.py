@@ -3,8 +3,10 @@
 This is the only module that writes into the user's collection. Media files are
 written first, outside the collection operation, and never overwrite a file.
 Every collection change of one update (notetypes, decks, notes and the persisted
-subscription) is merged into a single undo entry; if a step fails, the steps
-already done are undone before the error propagates.
+subscription) is merged into a single undo entry. What could make a collection
+step fail is checked before the first write; if a step still fails, the steps
+already done are undone, or `PartialApplyError` reports that they could not be.
+An update with nothing to change in the collection creates no undo entry.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from deckdock_addon.engine import (
     LocalNote,
     LocalNotetype,
     LocalState,
+    NoteAction,
     NotetypeAction,
     Plan,
     Skipped,
@@ -167,6 +170,80 @@ def write_media(
 # --- applying ----------------------------------------------------------------------
 
 
+class ApplyRefusedError(Exception):
+    """The plan cannot be applied safely; nothing was written to the collection.
+
+    `code` is stable for the interface: "deck_name_conflict" (a deck to create is
+    named like an existing filtered deck) or "collection_changed" (a note or
+    notetype of the plan disappeared since the plan was made: check again).
+    """
+
+    code: str
+
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(f"{code}: {detail}")
+        self.code = code
+
+
+class PartialApplyError(Exception):
+    """A collection step failed and the steps already done could not be undone.
+
+    The subscription was not updated. Running the update again finishes it:
+    notetypes and decks left by the failed attempt are found again and reused.
+    The original error is chained as `__cause__`.
+    """
+
+    code: str = "partial_apply"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "The update was partially applied and could not be undone; run Check "
+            + "again to finish it."
+        )
+
+
+def _compatible(nt_dict: NotetypeDict, nt: Notetype) -> bool:
+    """Whether an existing notetype has exactly the structure of the deck notetype."""
+    loc = _local_notetype(nt_dict)
+    return (
+        loc.field_names == tuple(nt["fields"])
+        and loc.template_count == len(nt["templates"])
+        and loc.is_cloze == (nt["kind"] == "cloze")
+    )
+
+
+def _find_by_name(col: Collection, deck: CompiledDeck, nt: Notetype) -> int | None:
+    """Id of a notetype named as DeckDock names this one, with the same structure."""
+    found = col.models.by_name(notetype_name(deck, nt))
+    if found is None or not _compatible(found, nt):
+        return None
+    return cast(int, found["id"])
+
+
+def adopt_notetypes(
+    col: Collection, deck: CompiledDeck, sub: Subscription
+) -> Subscription:
+    """Map deck notetypes that lost their mapping to an existing DeckDock notetype.
+
+    A notetype whose remembered id is missing, and whose deck `anki_id` is not in
+    the collection, is looked up by its exact DeckDock name and structure. This
+    recovers the notetypes created by an interrupted update, so a retry never
+    creates duplicates, and its notes are recognized as this deck's.
+    """
+    ids = dict(sub.notetype_ids)
+    for nt in deck["notetypes"]:
+        mapped = ids.get(nt["id"])
+        if mapped is not None and col.models.get(NotetypeId(mapped)) is not None:
+            continue
+        anki_id = nt.get("anki_id")
+        if anki_id is not None and col.models.get(NotetypeId(anki_id)) is not None:
+            continue
+        found = _find_by_name(col, deck, nt)
+        if found is not None:
+            ids[nt["id"]] = found
+    return sub if ids == sub.notetype_ids else replace(sub, notetype_ids=ids)
+
+
 class _Applier:
     def __init__(
         self, col: Collection, deck: CompiledDeck, sub: Subscription, plan: Plan
@@ -178,14 +255,101 @@ class _Applier:
         self.notetypes: dict[str, Notetype] = {nt["id"]: nt for nt in deck["notetypes"]}
         self.ids: dict[str, int] = dict(sub.notetype_ids)
         self.imposed: set[str] = set()
+        self.creates: list[NoteAction] = [
+            a for a in plan.note_actions if a.kind == "create"
+        ]
+        self.changes: list[NoteAction] = [
+            a for a in plan.note_actions if a.kind in ("update", "retire")
+        ]
+        self.catalog: Catalog = Catalog()
+        self.root: int | None = None
+        self.taken: set[str] = set()
         self.pos: int | None = None
+        self.done: int = 0
 
     def local(self, text: str) -> str:
         return to_local_names(text, self.sub.media)
 
     def merge(self) -> None:
+        """Record that a collection step succeeded and merge it into the undo entry."""
+        self.done += 1
         if self.pos is not None:
             _ = self.col.merge_undo_entries(self.pos)
+
+    # validation (no writes)
+
+    def _deck_problem(self, name: str) -> None:
+        parts = name.split("::")
+        for i in range(1, len(parts) + 1):
+            prefix = "::".join(parts[:i])
+            did = self.col.decks.id_for_name(prefix)
+            if did is None:
+                continue
+            found = self.col.decks.get(did, default=False)
+            if found is not None and found.get("dyn"):
+                raise ApplyRefusedError(
+                    "deck_name_conflict",
+                    f"the deck {prefix!r} is a filtered deck; rename it and check again",
+                )
+
+    def _resolve_root(self) -> tuple[int | None, str]:
+        """Existing root deck id (remembered id, deck `anki_id`, then name) and its name."""
+        info = self.deck["deck"]
+        for did in (self.sub.root_deck_anki_id, info.get("anki_id")):
+            if did is not None and _deck_exists(self.col, did):
+                return did, self.col.decks.name(DeckId(did))
+        did = self.col.decks.id_for_name(info["name"])
+        if did is not None and _deck_exists(self.col, did):
+            return int(did), info["name"]
+        return None, info["name"]
+
+    def validate(self) -> None:
+        """Refuse, before any write, what would make a collection step fail."""
+        self.catalog = read_catalog(self.col)
+        mm = self.col.models
+        for action in self.plan.notetype_actions:
+            if action.change == "create":
+                continue
+            if action.anki_id is None or mm.get(NotetypeId(action.anki_id)) is None:
+                raise ApplyRefusedError(
+                    "collection_changed", f"note type {action.slug!r} is missing"
+                )
+        expected = {a.note_id: a.guid for a in self.changes if a.note_id is not None}
+        found: dict[int, str] = {}
+        ids = [str(i) for i in expected]
+        for chunk in _chunks(ids):
+            marks = ",".join("?" * len(chunk))
+            sql = f"select id, guid from notes where id in ({marks})"
+            for row in _db(self.col).all(sql, *(int(i) for i in chunk)):
+                found[cast(int, row[0])] = cast(str, row[1])
+        if any(found.get(nid) != guid for nid, guid in expected.items()):
+            raise ApplyRefusedError("collection_changed", "a note to update is missing")
+
+        self.taken = self.taken_guids([a.guid for a in self.creates])
+        if any(a.guid not in self.taken for a in self.creates):
+            root, root_name = self._resolve_root()
+            self.root = root
+            if root is None:
+                self._deck_problem(root_name)
+            for path in {a.deck_path or "" for a in self.creates} - {""}:
+                self._deck_problem(f"{root_name}::{path}")
+        else:
+            self.root, _ = self._resolve_root()
+
+    def taken_guids(self, guids: list[str]) -> set[str]:
+        taken: set[str] = set()
+        for chunk in _chunks(guids):
+            marks = ",".join("?" * len(chunk))
+            sql = f"select guid from notes where guid in ({marks})"
+            taken.update(cast(list[str], _db(self.col).list(sql, *chunk)))
+        return taken
+
+    def writes_collection(self) -> bool:
+        return (
+            bool(self.changes)
+            or any(a.guid not in self.taken for a in self.creates)
+            or any(a.change != "unchanged" for a in self.plan.notetype_actions)
+        )
 
     # notetypes
 
@@ -230,41 +394,52 @@ class _Applier:
             self.ids[action.slug] = action.anki_id
             self.imposed.add(action.slug)
 
-    def apply_notetype(self, action: NotetypeAction) -> None:
+    def _update_notetype(
+        self, anki_id: int, nt: Notetype, appended: Iterable[str]
+    ) -> None:
         mm = self.col.models
-        nt = self.notetypes[action.slug]
-        if action.change == "create":
-            if action.slug in self.imposed:
-                return  # already created with its imposed id
-            self.ids[action.slug] = int(mm.add(self._new_notetype(nt)).id)
-            self.merge()
-            return
-        if action.anki_id is None:
-            raise ValueError(f"notetype {action.slug!r} has no Anki id")
-        self.ids[action.slug] = action.anki_id
-        if action.change == "unchanged":
-            return
-        nt_dict = mm.get(NotetypeId(action.anki_id))
+        nt_dict = mm.get(NotetypeId(anki_id))
         if nt_dict is None:
-            raise ValueError(f"notetype {action.slug!r} disappeared")
-        for name in action.appended_fields:
+            raise ApplyRefusedError(
+                "collection_changed", f"note type {nt['id']!r} is missing"
+            )
+        for name in appended:
             mm.add_field(nt_dict, mm.new_field(name))
         self._set_templates(nt_dict, nt)
         _ = mm.update_dict(nt_dict)
         self.merge()
 
+    def apply_notetype(self, action: NotetypeAction) -> None:
+        nt = self.notetypes[action.slug]
+        if action.change == "create":
+            if action.slug in self.imposed:
+                return  # already created with its imposed id
+            found = _find_by_name(self.col, self.deck, nt)
+            if found is not None:  # left by an interrupted attempt
+                self.ids[action.slug] = found
+                self._update_notetype(found, nt, ())
+                return
+            self.ids[action.slug] = int(self.col.models.add(self._new_notetype(nt)).id)
+            self.merge()
+            return
+        if action.anki_id is None:
+            raise ApplyRefusedError("collection_changed", f"note type {action.slug!r}")
+        self.ids[action.slug] = action.anki_id
+        if action.change != "unchanged":
+            self._update_notetype(action.anki_id, nt, action.appended_fields)
+
     # decks
 
     def root_deck(self) -> int:
-        info = self.deck["deck"]
-        for did in (self.sub.root_deck_anki_id, info.get("anki_id")):
-            if did is not None and _deck_exists(self.col, did):
-                return did
-        did = self.col.decks.id(info["name"])
+        if self.root is not None:
+            return self.root
+        name = self.deck["deck"]["name"]
+        did = self.col.decks.id(name)
         if did is None:
-            raise ValueError(f"cannot create deck {info['name']!r}")
+            raise ValueError(f"cannot create deck {name!r}")
         self.merge()
-        return int(did)
+        self.root = int(did)
+        return self.root
 
     def deck_ids(self, root: int, paths: set[str]) -> dict[str, int]:
         root_name = self.col.decks.name(DeckId(root))
@@ -274,35 +449,29 @@ class _Applier:
             if did is None:
                 raise ValueError(f"cannot create deck {path!r}")
             out[path] = int(did)
-        self.merge()
+            self.merge()
         return out
 
     # notes
 
-    def taken_guids(self, guids: list[str]) -> set[str]:
-        taken: set[str] = set()
-        for chunk in _chunks(guids):
-            marks = ",".join("?" * len(chunk))
-            sql = f"select guid from notes where guid in ({marks})"
-            taken.update(cast(list[str], _db(self.col).list(sql, *chunk)))
-        return taken
-
-    def create_notes(self, root: int) -> list[Skipped]:
-        creates = [a for a in self.plan.note_actions if a.kind == "create"]
-        if not creates:
-            return []
-        taken = self.taken_guids([a.guid for a in creates])
-        skipped = [
+    def taken_skips(self) -> list[Skipped]:
+        """Creations refused because another note already has the GUID."""
+        return [
             Skipped(
                 a.guid,
                 "foreign_note",
                 preview(next(iter((a.fields or {}).values()), "")),
             )
-            for a in creates
-            if a.guid in taken
+            for a in self.creates
+            if a.guid in self.taken
         ]
-        todo = [a for a in creates if a.guid not in taken]
-        decks = self.deck_ids(root, {a.deck_path or "" for a in todo})
+
+    def create_notes(self) -> list[Skipped]:
+        skipped = self.taken_skips()
+        todo = [a for a in self.creates if a.guid not in self.taken]
+        if not todo:
+            return skipped
+        decks = self.deck_ids(self.root_deck(), {a.deck_path or "" for a in todo})
         models: dict[str, NotetypeDict] = {}
         requests: list[AddNoteRequest] = []
         for a in todo:
@@ -318,15 +487,14 @@ class _Applier:
                 note[name] = self.local(value)
             note.tags = list(a.tags or ())
             requests.append(AddNoteRequest(note, DeckId(decks[a.deck_path or ""])))
-        if requests:
-            _ = self.col.add_notes(requests)
-            self.merge()
+        _ = self.col.add_notes(requests)
+        self.merge()
         return skipped
 
     def change_notes(self) -> None:
         changed: list[AnkiNote] = []
-        for a in self.plan.note_actions:
-            if a.kind not in ("update", "retire") or a.note_id is None:
+        for a in self.changes:
+            if a.note_id is None:
                 continue
             note = self.col.get_note(NoteId(a.note_id))
             if a.kind == "retire":
@@ -342,54 +510,91 @@ class _Applier:
 
     # subscription
 
-    def persist(self, sub: Subscription) -> None:
-        """Store the subscription in the collection config, inside the undo entry.
+    def new_subscription(self, extra: Iterable[Skipped]) -> Subscription:
+        received = dict(self.plan.new_received)
+        for s in extra:
+            _ = received.pop(s.guid, None)
+        return replace(
+            self.sub,
+            installed_version=self.deck["deck"]["version"],
+            available_version=None,
+            notetype_ids=self.ids,
+            root_deck_anki_id=self.root
+            if self.root is not None
+            else self.sub.root_deck_anki_id,
+            received=received,
+        )
 
-        Undoing the update then also restores what the subscription had received,
-        so undone notes are not later mistaken for notes deleted by the user.
+    def persist(self, sub: Subscription, *, undoable: bool) -> None:
+        """Store the subscription in the collection config.
+
+        Inside the undo entry, undoing the update also restores what the
+        subscription had received, so undone notes are not later mistaken for
+        notes deleted by the user.
         """
-        catalog = read_catalog(self.col)
-        if any(s.id == sub.id for s in catalog.subscriptions):
-            subs = tuple(sub if s.id == sub.id else s for s in catalog.subscriptions)
+        subs = self.catalog.subscriptions
+        if any(s.id == sub.id for s in subs):
+            if sub in subs:
+                return
+            subs = tuple(sub if s.id == sub.id else s for s in subs)
         else:
-            subs = (*catalog.subscriptions, sub)
-        _ = self.col.set_config(CONFIG_KEY, dump_catalog(Catalog(subs)), undoable=True)
-        self.merge()
+            subs = (*subs, sub)
+        _ = self.col.set_config(
+            CONFIG_KEY, dump_catalog(Catalog(subs)), undoable=undoable
+        )
+        if undoable:
+            self.merge()
 
     def run(self, undo_label: str) -> tuple[Subscription, tuple[Skipped, ...]]:
+        self.validate()
+        extra_taken = self.taken_skips()
+        if not self.writes_collection():
+            # Nothing to change in the collection: no undo entry that would hide
+            # the user's own last action.
+            new_sub = self.new_subscription(extra_taken)
+            self.persist(new_sub, undoable=False)
+            return new_sub, tuple(extra_taken)
+
         self.create_with_imposed_ids()
         self.pos = self.col.add_custom_undo_entry(undo_label)
         try:
             for action in self.plan.notetype_actions:
                 self.apply_notetype(action)
-            root = self.root_deck()
-            extra = self.create_notes(root)
+            extra = self.create_notes()
             self.change_notes()
-            received = dict(self.plan.new_received)
-            for s in extra:
-                _ = received.pop(s.guid, None)
-            new_sub = replace(
-                self.sub,
-                installed_version=self.deck["deck"]["version"],
-                available_version=None,
-                notetype_ids=self.ids,
-                root_deck_anki_id=root,
-                received=received,
-            )
-            self.persist(new_sub)
-        except BaseException:
-            self.rollback(undo_label)
+            new_sub = self.new_subscription(extra)
+            self.persist(new_sub, undoable=True)
+        except BaseException as error:
+            self.rollback(undo_label, error)
             raise
         return new_sub, tuple(extra)
 
-    def rollback(self, undo_label: str) -> None:
-        """Undo the steps already applied (best effort; the original error wins)."""
+    def rollback(self, undo_label: str, error: BaseException) -> None:
+        """Undo the steps already done, or raise `PartialApplyError` from `error`.
+
+        When an Anki backend operation fails, Anki may discard the whole undo
+        queue; the steps already done then cannot be undone and the failure is
+        reported as partial instead of being hidden.
+        """
         try:
-            self.merge()
-            if self.col.undo_status().undo == undo_label:
-                _ = self.col.undo()
-        except Exception:  # noqa: BLE001, S110
-            pass
+            if self.done == 0:
+                # Nothing was applied: only drop the empty undo entry, if still there.
+                if self.col.undo_status().undo == undo_label:
+                    _ = self.col.undo()
+                return
+            _ = self.col.merge_undo_entries(cast(int, self.pos))
+            if self.col.undo_status().undo != undo_label:
+                raise PartialApplyError from error
+            _ = self.col.undo()
+        except PartialApplyError:
+            raise
+        except Exception as undo_error:  # noqa: BLE001 - recorded on the raised error
+            if self.done == 0:
+                error.add_note(f"Removing the empty undo entry failed: {undo_error!r}")
+                return
+            partial = PartialApplyError()
+            partial.add_note(f"Undoing the applied steps failed: {undo_error!r}")
+            raise partial from error
 
 
 def apply_plan(
@@ -407,6 +612,11 @@ def apply_plan(
     `write_media`). Returns the updated subscription (also persisted in the
     collection config within the same undo entry) and the notes skipped at apply
     time because their GUID was taken by another note (`foreign_note`).
+
+    Raises `ApplyRefusedError` (nothing written) when the plan cannot be applied
+    safely, and `PartialApplyError` when a step failed and could not be undone.
+    A plan with nothing to change in the collection only updates the stored
+    subscription, without an undo entry.
     """
     if plan.blocked is not None:
         raise ValueError(f"refusing to apply a blocked plan: {plan.blocked}")
@@ -446,6 +656,19 @@ def _write_versions(profile_dir: Path, deck: CompiledDeck, sub: Subscription) ->
         pass
 
 
+def _held(plan: Plan, confirmed_full_sync: bool) -> bool:
+    return plan.blocked is not None or (
+        plan.needs_full_sync_confirmation and not confirmed_full_sync
+    )
+
+
+def _plan(
+    col: Collection, deck: CompiledDeck, sub: Subscription
+) -> tuple[Subscription, Plan]:
+    base = adopt_notetypes(col, deck, sub)
+    return base, make_plan(deck, base, read_local_state(col, deck, base))
+
+
 def update_subscription(
     col: Collection,
     sub: Subscription,
@@ -461,24 +684,33 @@ def update_subscription(
     served now. Nothing is applied when the plan is blocked or needs an
     unconfirmed full sync; the subscription is then returned unchanged. A media
     download failure raises `SourceError` before the collection is touched.
+
+    Media are downloaded and written first; the local state is then read again
+    and the plan recomputed right before applying, so an edit the user makes
+    during a long download is never overwritten. That plan still uses the
+    previous media table, which tells the engine which media changed; the
+    notes are written with the new local names.
     """
     fetched = fetch_deck(sub.base_url, etag=None, transport=transport)
     if fetched is None:
         raise SourceError("http_error", "unexpected 304 without ETag")
     deck = fetched.deck
-    plan = make_plan(deck, sub, read_local_state(col, deck, sub))
-    if plan.blocked is not None or (
-        plan.needs_full_sync_confirmation and not confirmed_full_sync
-    ):
+    base, plan = _plan(col, deck, sub)
+    if _held(plan, confirmed_full_sync):
         return sub, plan
 
-    downloads = [
-        (entry, fetch_media(sub.base_url, entry, transport=transport))
-        for entry in plan.media_to_download
-    ]
-    staged = replace(
-        sub, media=write_media(col, downloads, sub.media), etag=fetched.etag
-    )
+    media = sub.media
+    if plan.media_to_download:
+        downloads = [
+            (entry, fetch_media(sub.base_url, entry, transport=transport))
+            for entry in plan.media_to_download
+        ]
+        media = write_media(col, downloads, sub.media)
+        # The download may have taken minutes: plan again on the current state.
+        base, plan = _plan(col, deck, sub)
+        if _held(plan, confirmed_full_sync):
+            return sub, plan
+    staged = replace(base, media=media, etag=fetched.etag)
     new_sub, extra = apply_plan(
         col,
         deck,
