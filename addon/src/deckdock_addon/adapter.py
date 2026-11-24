@@ -584,7 +584,6 @@ class _Applier:
         return replace(
             self.sub,
             installed_version=self.deck["deck"]["version"],
-            available_version=None,
             notetype_ids=self.ids,
             root_deck_anki_id=self.root
             if self.root is not None

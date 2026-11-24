@@ -108,6 +108,13 @@ def stored(col: Collection) -> tuple[Subscription, ...]:
     return tuple(out)
 
 
+def synced(sub: Subscription) -> Subscription:
+    """`sub` as the collection config stores it: without the local check state."""
+    return replace(
+        sub, etag=None, last_checked_at=None, last_error=None, available_version=None
+    )
+
+
 def schema(col: Collection) -> int:
     return scalar(col, "select scm from col") or 0
 
@@ -163,7 +170,7 @@ def test_install_creates_notetypes_deck_notes_media(
     assert set(versions) == guids
 
     # The subscription is persisted in the collection config within the operation.
-    assert stored(col) == (new_sub,)
+    assert stored(col) == (synced(new_sub),)
 
     # Applying the same version again changes nothing.
     again, plan2 = run(col, server, new_sub, profile_dir)
@@ -357,7 +364,7 @@ def test_whole_update_is_one_undo_step(
 
     updated, plan = run(col, server, new_sub, profile_dir)
     assert (plan.counts.created, plan.counts.updated) == (1, 1)
-    assert stored(col) == (updated,)
+    assert stored(col) == (synced(updated),)
     assert col.undo_status().undo == LABEL
 
     _ = col.undo()
@@ -369,7 +376,7 @@ def test_whole_update_is_one_undo_step(
     assert reversed_nt is not None
     assert reversed_nt["css"] == ".card { color: black; }"
     # The persisted subscription is rolled back with the collection.
-    assert stored(col) == (new_sub,)
+    assert stored(col) == (synced(new_sub),)
 
 
 def test_existing_guid_from_other_source_is_conflict(
@@ -452,7 +459,7 @@ def test_failure_during_apply_rolls_back(
 
     assert col.note_count() == 3
     assert note_by_guid(col, "hw-basic-2") is None
-    assert stored(col) == (new_sub,)
+    assert stored(col) == (synced(new_sub),)
     _, plan = run(col, server, new_sub, profile_dir)
     assert (plan.counts.created, plan.counts.updated) == (1, 1)
 
@@ -474,7 +481,7 @@ def test_network_failure_during_media_changes_nothing(
 
     assert (col.mod, col.note_count()) == (mod, count)
     assert sorted(p.name for p in Path(col.media.dir()).iterdir()) == files
-    assert stored(col) == (new_sub,)
+    assert stored(col) == (synced(new_sub),)
 
     server.failing.clear()
     updated, plan = run(col, server, new_sub, profile_dir)
@@ -653,7 +660,7 @@ def test_subdeck_under_filtered_deck_refused(
     with pytest.raises(ApplyRefusedError, match="filtered"):
         _ = run(col, server, new_sub, profile_dir)
     assert col.note_count() == count
-    assert stored(col) == (new_sub,)
+    assert stored(col) == (synced(new_sub),)
 
 
 def test_note_deleted_between_plan_and_apply_is_refused(
@@ -703,7 +710,7 @@ def test_backend_error_mid_apply_is_reported_and_retry_does_not_duplicate(
 
     assert raised.value.__cause__ is not None
     assert "Check again" in str(raised.value)
-    assert stored(col) == (new_sub,)
+    assert stored(col) == (synced(new_sub),)
 
     finished, plan = run(col, server, new_sub, profile_dir)
 
@@ -792,7 +799,7 @@ def test_noop_update_adds_no_undo_entry(
     assert is_noop(plan)
     assert col.undo_status().undo == label
     assert again.etag != new_sub.etag  # the fake server sends a new ETag each time
-    assert stored(col) == (again,)
+    assert stored(col) == (synced(again),)
     assert col.note_count() == 4
 
 

@@ -2,8 +2,8 @@
 
 Anything that is not Qt (which subscriptions are due, how a check result is
 recorded, the summary text of a plan) lives in small pure functions at the top,
-which have tests. The Qt part follows one rule: the catalog is read and written on
-the main thread; background work (network, collection reads, the apply
+which have tests. The Qt part follows one rule: the catalog (synced collection
+config plus the local check state file) is read and written on the main thread; background work (network, collection reads, the apply
 operation) returns plain values. A counter, `_epoch`, is incremented when the
 profile closes, so a callback from before that moment does nothing.
 """
@@ -79,10 +79,15 @@ from deckdock_addon.store import (
     Subscription,
     add,
     check_is_due,
+    check_state_path,
     full_versions_path,
     read_catalog,
+    read_check_state,
     remove,
+    same_synced,
+    with_check_state,
     write_catalog,
+    write_check_state,
 )
 from deckdock_addon.store import (
     replace as replace_subscription,
@@ -150,13 +155,29 @@ def apply_check(
         return replace(sub, last_error=outcome.code)
     if outcome is None:  # HTTP 304: the ETag still matches
         return replace(sub, last_error=None, last_checked_at=checked_at)
-    version = outcome.deck["deck"]["version"]
     return replace(
         sub,
         etag=outcome.etag,
         last_error=None,
         last_checked_at=checked_at,
-        available_version=None if version == sub.installed_version else version,
+        available_version=outcome.deck["deck"]["version"],
+    )
+
+
+def record_apply(
+    sub: Subscription, applied: Subscription, checked_at: str
+) -> Subscription:
+    """The local check state after a successful apply of `applied`.
+
+    The version just applied is the version seen on the server, so undoing the
+    apply shows the update as available again.
+    """
+    return replace(
+        sub,
+        etag=applied.etag,
+        available_version=applied.installed_version,
+        last_error=None,
+        last_checked_at=checked_at,
     )
 
 
@@ -278,15 +299,37 @@ def _interval_hours() -> int:
     return check_interval_hours(config)
 
 
+def _state_path() -> Path:
+    return check_state_path(_profile_dir())
+
+
 def _read_catalog() -> Catalog | None:
-    """The catalog, or None when no profile is open or the stored one is unreadable."""
+    """The catalog with the local check state, or None.
+
+    None when no profile is open or the stored catalog is unreadable.
+    """
     col = _collection()
     if col is None:
         return None
     try:
-        return read_catalog(col)
+        catalog = read_catalog(col)
     except ValueError:
         return None
+    return with_check_state(catalog, read_check_state(_state_path()))
+
+
+def _save(col: Collection, before: Catalog, after: Catalog) -> None:
+    """Store `after`: the check state locally, the collection config only if changed.
+
+    A check only changes the local state, so it never rewrites the synced
+    catalog (config sync keeps the newest value of the whole key).
+    """
+    if not same_synced(before, after):
+        write_catalog(col, after)
+    try:
+        write_check_state(_state_path(), after)
+    except OSError:
+        traceback.print_exc()  # only a cache of the last check
 
 
 def _update_catalog(change: Callable[[Catalog], Catalog]) -> bool:
@@ -294,7 +337,7 @@ def _update_catalog(change: Callable[[Catalog], Catalog]) -> bool:
     catalog = _read_catalog()
     if col is None or catalog is None:
         return False
-    write_catalog(col, change(catalog))
+    _save(col, catalog, change(catalog))
     return True
 
 
@@ -597,8 +640,9 @@ def _apply_next(
         if message is not None:
             held.append(message)
         else:
+            checked_at = _now()
             _update_subscription(
-                sub.id, lambda s: replace(s, last_error=None, last_checked_at=_now())
+                sub.id, lambda s: record_apply(s, result.sub, checked_at)
             )
             tooltip(strings.text("UPDATED").format(name=sub.name), parent=_parent())
         _apply_next(rest, collection, epoch, held)
@@ -1079,7 +1123,7 @@ class AddDialog(QDialog):
                 self._fail(strings.CONFLICTING_EDITION)
                 return
             if self._collection is not None:
-                write_catalog(self._collection, updated)
+                _save(self._collection, catalog, updated)
             self.added = sub
             self.accept()
 

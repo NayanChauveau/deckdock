@@ -163,7 +163,7 @@ Si l'utilisateur a modifié lui-même les templates d'un notetype géré par Dec
 - **Après succès :**
   - on enregistre les versions reçues des notes effectivement appliquées ou confirmées identiques ;
   - les notes en conflit gardent leur ancienne version reçue, pour pouvoir être résolues plus tard ;
-  - on met à jour la version installée et l'ETag.
+  - on met à jour la version installée (config synchronisée), puis l'ETag et la version vue (état local, §5.6).
 - **Rien n'est jamais supprimé**, ni note, ni carte, ni média.
 - **Deck racine.** Il est créé avec `deck.name` et son id Anki est mémorisé. Si l'utilisateur le renomme, le plugin suit l'id. Avec `deck.anki_id`, on réutilise ce deck s'il existe. Sinon on le crée avec un nouvel id : Anki n'accepte pas d'id imposé pour un deck.
 
@@ -177,10 +177,13 @@ Si l'utilisateur a modifié lui-même les templates d'un notetype géré par Dec
 
 - **Abonnements (synchronisés).** Dans la config de la collection, clé `deckdock` (JSON versionné, comme le Deck Manager), ce qui les synchronise via AnkiWeb. Pour chaque abonnement :
   - identité et source : `id`, `source_url` (dépôt ou base), `base_url`, `deck_id`, `edition`, `name` ;
-  - suivi : `installed_version`, `etag`, `last_checked_at`, `last_error` ;
+  - suivi : `installed_version` ;
   - correspondances : `root_deck_anki_id`, `notetype_ids` (slug → id Anki), `media` (nom d'origine → sha256 reçu et nom local).
 
   La config reste petite (quelques Ko) : Anki l'envoie en entier à chaque synchronisation.
+
+  Elle ne change qu'à l'ajout, au retrait et à l'application d'un abonnement. La synchronisation garde la valeur la plus récente de toute la clé : si une simple vérification la réécrivait, un ordinateur en retard pourrait ramener l'ancienne `installed_version` par-dessus une application faite ailleurs.
+- **État des vérifications (local).** `etag`, `last_checked_at`, `last_error` et `available_version` (la dernière version vue sur le serveur, qui peut être la version installée) changent à chaque vérification : ils restent sur cet ordinateur, dans `<profil>/deckdock/state.json`, par id d'abonnement, écrit de façon atomique. Un fichier absent ou illisible équivaut à « jamais vérifié ».
 - **Empreintes reçues (synchronisées).** Dans le dossier des médias de la collection : `_deckdock_<deck_id>_<edition>.json`, au format `deckdock-received/1`. Pour chaque version installée, on garde un instantané `received` (GUID → empreinte reçue : un hash court des champs reçus et la liste des tags reçus). `latest` désigne le dernier instantané écrit, et on n'en garde que deux : celui qui vient d'être écrit et celui de la version installée juste avant (la base de la mise à jour). La synchronisation des médias d'AnkiWeb recopie ce fichier, et « Vérifier les médias » le garde parce que son nom commence par `_`. C'est de l'ordre de quelques centaines de Ko pour 10 000 notes. Un second ordinateur reconnaît donc les modifs locales, les suppressions et les retraits exactement comme le premier.
   - Le fichier est lu avant chaque plan, avec l'instantané de `installed_version` (à défaut `latest`). Un abonnement pas encore installé (`installed_version` vide) prend l'instantané `latest` du fichier s'il existe : c'est la base laissée par un abonnement retiré de la même édition. Sans fichier, il n'a rien reçu. Exception : si le fichier indique (`first_install`) que c'est cet abonnement-là qui a fait la première installation, c'est que cette installation a été annulée, et il repart de l'instantané dont elle était partie (ou de rien). Si un abonnement installé n'a pas de fichier utilisable (absent, illisible, d'un autre deck, ou sans instantané), la synchronisation des médias ne l'a sans doute pas encore apporté : le plan est bloqué avec le message « Les données de suivi de ce deck ne sont pas encore arrivées sur cet ordinateur. Synchronise Anki (médias compris), puis réessaie. » Planifier sans base recréerait les notes supprimées par l'utilisateur. Il est écrit après une application réussie, hors de l'étape d'annulation, et seulement si son contenu change. Si l'écriture échoue, la mise à jour reste faite et l'erreur est journalisée.
   - **Tolérance au catalogue en retard.** Si l'empreinte d'une note locale diffère de celle de l'instantané installé mais égale celle de l'instantané `latest`, la note est considérée comme non modifiée, avec l'entrée de `latest` comme base. Cela couvre un catalogue synchronisé qui indique une version plus ancienne que celle appliquée sur un autre ordinateur.

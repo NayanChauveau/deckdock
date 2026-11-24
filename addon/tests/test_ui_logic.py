@@ -64,7 +64,9 @@ def test_apply_check_success_records_the_available_version() -> None:
     )
     assert out.last_checked_at == "T"
     same = ui.apply_check(_sub(installed_version=version), FetchedDeck(deck, None), "T")
-    assert same.available_version is None
+    # The version seen on the server is kept even when it is the installed one,
+    # so an undo of the apply shows the update again.
+    assert same.available_version == version
 
 
 def test_apply_check_unchanged_keeps_the_known_version() -> None:
@@ -179,3 +181,16 @@ def test_held_message() -> None:
     assert blocked is not None
     assert blocked.endswith("Because.")
     assert "Mise à jour refusée" in blocked
+
+
+def test_record_apply_keeps_the_check_state_of_the_applied_version() -> None:
+    before = _sub(installed_version="v1", available_version="v2", last_error="x")
+    applied = replace(before, installed_version="v3", etag="e3")
+    out = ui.record_apply(before, applied, "T")
+    assert (out.etag, out.available_version, out.last_error, out.last_checked_at) == (
+        "e3",
+        "v3",
+        None,
+        "T",
+    )
+    assert out.installed_version == "v1"  # the synced part comes from the config
