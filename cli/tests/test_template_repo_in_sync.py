@@ -33,5 +33,5 @@ def _snapshot(root: Path) -> dict[str, tuple[str, bytes | str]]:
 )
 def test_template_repo_matches_init(tmp_path: Path):
     generated = tmp_path / "deckdock-template"
-    init_project(generated)
+    init_project(generated, deck_id="my-deck")
     assert _snapshot(TEMPLATE) == _snapshot(generated)

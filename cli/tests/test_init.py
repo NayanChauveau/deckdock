@@ -152,3 +152,11 @@ def test_cli_init_under_a_file(tmp_path: Path, capsys: pytest.CaptureFixture[str
     err = capsys.readouterr().err
     assert "Traceback" not in err
     assert err.startswith(f"{file / 'sub'}: cannot create project:")
+
+
+@pytest.mark.parametrize("doc", ["AGENTS.md", "README.md"])
+def test_docs_state_ids_are_permanent(tmp_path: Path, doc: str):
+    init_project(tmp_path)
+    text = " ".join((tmp_path / doc).read_text(encoding="utf-8").split())
+    assert "permanent" in text
+    assert "review history" in text
