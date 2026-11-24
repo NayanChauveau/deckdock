@@ -138,6 +138,18 @@ Any language or tool can produce `deckdock/1`: the format is plain JSON plus a `
 - **MUST** produce output that passes `deckdock check` in strict mode;
 - **SHOULD** write `dist/<edition>/deck.json` as UTF-8 with `ensure_ascii=False`, with media in `dist/<edition>/media/`.
 
+### Changing a published notetype
+
+Subscribers already have your notetypes in their Anki collection, so changes to a published notetype fall into three groups:
+
+| Change | Effect on subscribers |
+| --- | --- |
+| Note content (fields' values, tags), adding or retiring notes, template text, CSS | Applied normally; review history is kept |
+| Adding a field **at the end** of `fields` | Changes Anki's schema: applying it requires a full AnkiWeb sync, so clients **MUST** ask the user to confirm (and to sync their other devices first). Reviews not yet synced from other devices can be lost |
+| Removing, renaming or reordering fields; adding or removing templates; changing `kind` | **Not supported** by current clients: the update is refused and subscribers stay on the previous version. Removing a template would delete its cards and their review history, and a rename is indistinguishable from a removal plus an addition |
+
+A compiler **SHOULD** therefore treat a published notetype's structure as frozen. To change it, prefer a new notetype (new `id`) for new notes.
+
 In Python, the standard-library-only `deckdock` package helps: `deckdock.format` provides `TypedDict` models of this format (`CompiledDeck`, `Deck`, `DeckOptions`, `Notetype`, `Template`, `Note`, `MediaEntry`) and the reference checker, and `deckdock.guid.guid_for` derives GUIDs the way genanki does.
 
 ```python
