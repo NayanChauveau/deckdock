@@ -7,6 +7,8 @@ from typing import cast
 from deckdock import __version__
 from deckdock.format import check_dist
 from deckdock.issues import print_issues
+from deckdock.source.load import load_project
+from deckdock.source.validate import validate_project
 
 COMMANDS = ("init", "validate", "build", "check")
 
@@ -16,12 +18,14 @@ def build_parser() -> argparse.ArgumentParser:
     _ = parser.add_argument("--version", action="store_true", help="show version and exit")
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     for name in COMMANDS:
-        if name == "check":
+        if name in ("check", "validate"):
             continue
         # Stubs: filled in by later tasks.
         _ = subparsers.add_parser(name, help=f"{name} (not implemented yet)")
     check = subparsers.add_parser("check", help="check compiled deckdock/1 editions")
     _ = check.add_argument("dist", nargs="?", default="dist", help="dist directory (default: dist)")
+    validate = subparsers.add_parser("validate", help="validate the YAML sources of a project")
+    _ = validate.add_argument("root", nargs="?", default=".", help="project root (default: .)")
     return parser
 
 
@@ -37,4 +41,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if command == "check":
         return print_issues(check_dist(Path(cast(str, args.dist))))
+    if command == "validate":
+        project, issues = load_project(Path(cast(str, args.root)))
+        if project is not None:
+            issues = validate_project(project)
+        return print_issues(issues)
     return 0
