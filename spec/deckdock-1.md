@@ -90,7 +90,7 @@ Field values are HTML: Markdown and other sources are already rendered at build 
 ## Identity and uniqueness
 
 - (`deck.id`, `deck.edition`) identifies an update stream. Global uniqueness (owner prefix, etc.) is assigned by the hub.
-- `notes[].guid` is the Anki GUID. It is unique **within a file** and must stay stable between versions: it is the update key, and keeping it preserves scheduling. The same GUID may appear in several editions of the same deck. In an Anki collection a GUID is globally unique, so the add-on must prevent subscribing to two editions that share GUIDs, or offer to switch from one to the other.
+- `notes[].guid` is the Anki GUID (`deckdock build` derives it from the deck id, card id and edition: see [`deckdock-source-1.md`](deckdock-source-1.md#guids-and-permanence)). It is unique **within a file** and must stay stable between versions: it is the update key, and keeping it preserves scheduling. The same GUID may appear in several editions of the same deck. In an Anki collection a GUID is globally unique, so the add-on must prevent subscribing to two editions that share GUIDs, or offer to switch from one to the other.
 - `notetypes[].id` is a stable slug local to the deck. Numeric Anki ids are derived by the add-on unless `anki_id` is given.
 - `deck.version` is opaque; ordering of versions is the hub's business (order of receipt).
 
@@ -135,7 +135,6 @@ A custom generator does not have to use the YAML sources. The `deckdock.format` 
 `DeckOptions`, `Notetype`, `Template`, `Note`, `MediaEntry`) and the reference checker:
 
 ```python
-import json
 from deckdock.format import CompiledDeck, check_deck, check_dist
 
 deck: CompiledDeck = {...}  # built with these models
