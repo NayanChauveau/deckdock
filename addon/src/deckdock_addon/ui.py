@@ -262,7 +262,7 @@ def apply_changes() -> OpChanges:
 def held_message(
     sub: Subscription, plan: Plan, confirmed: bool, lang: str
 ) -> str | None:
-    """Why `update_subscription` applied nothing, or None when it was applied."""
+    """Why `apply_download` applied nothing, or None when it was applied."""
     if plan.blocked is not None:
         return "\n".join(summary_lines(plan, sub.name, sub.edition, lang))
     if plan.needs_full_sync_confirmation and not confirmed:
