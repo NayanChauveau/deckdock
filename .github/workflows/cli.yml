@@ -15,9 +15,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv run ruff check .
-      - run: uv run basedpyright
-      - run: uv run pytest -q
+      - run: uv sync --locked
+      - run: uv run --locked ruff check .
+      - run: uv run --locked ruff format --check .
+      - run: uv run --locked basedpyright
+      - run: uv run --locked pytest -q
 
   e2e:
     runs-on: ubuntu-latest
