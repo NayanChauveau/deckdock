@@ -198,7 +198,10 @@ def urllib_transport(
                 location = response_headers.get("location")
                 if not location:
                     raise SourceError("redirect_rejected", current)
-                current = urljoin(current, location)
+                try:
+                    current = urljoin(current, location)
+                except ValueError as exc:  # e.g. "https://[bad/x"
+                    raise SourceError("redirect_rejected", location) from exc
                 _require_https(current, "redirect_rejected")
                 continue
             if status == 404 or status == 304:
