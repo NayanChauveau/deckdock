@@ -66,7 +66,7 @@ addon/
     __init__.py          # point d'entrée Anki (n'importe aqt que si présent)
     vendor/deckdock/     # copie au build, pas commitée (ou commitée + test d'égalité ; au builder de choisir)
     sources.py           # URL → URL de base, lecture d'index.json et de deck.json (HTTP + ETag), médias
-    store.py             # abonnements (config de collection) + versions reçues (fichiers du profil)
+    store.py             # abonnements (config de collection) + empreintes reçues (dossier des médias) + versions reçues (fichiers du profil)
     engine.py            # MOTEUR PUR : (deck reçu, état local, versions reçues) → plan d'actions + résumé
     adapter.py           # ADAPTATEUR ANKI : lit l'état local, exécute un plan dans une opération annulable
     ui.py, strings.py    # fenêtre, dialogues, textes FR/EN
@@ -120,7 +120,7 @@ addon/
 
 **Règles, par note du deck reçu :**
 
-La détection repose sur l'**empreinte reçue** de chaque note : un hash court des champs tels que reçus, avec les noms de médias d'origine. Elle est **synchronisée** via la config de collection (§5.6). Un second ordinateur sait donc lui aussi ce qui a été reçu.
+La détection repose sur l'**empreinte reçue** de chaque note : un hash court des champs tels que reçus, avec les noms de médias d'origine. Elle est **synchronisée** par un fichier du dossier des médias, que la synchronisation des médias d'AnkiWeb recopie (§5.6). Un second ordinateur sait donc lui aussi ce qui a été reçu.
 
 | Situation | Action |
 |---|---|
@@ -178,10 +178,13 @@ Si l'utilisateur a modifié lui-même les templates d'un notetype géré par Dec
 - **Abonnements (synchronisés).** Dans la config de la collection, clé `deckdock` (JSON versionné, comme le Deck Manager), ce qui les synchronise via AnkiWeb. Pour chaque abonnement :
   - identité et source : `id`, `source_url` (dépôt ou base), `base_url`, `deck_id`, `edition`, `name` ;
   - suivi : `installed_version`, `etag`, `last_checked_at`, `last_error` ;
-  - correspondances : `root_deck_anki_id`, `notetype_ids` (slug → id Anki), `media` (nom d'origine → sha256 reçu et nom local) ;
-  - `received` (GUID → empreinte reçue : un hash court des champs reçus et la liste des tags reçus).
+  - correspondances : `root_deck_anki_id`, `notetype_ids` (slug → id Anki), `media` (nom d'origine → sha256 reçu et nom local).
 
-  C'est compact, de l'ordre de quelques centaines de Ko pour 10 000 notes. Un second ordinateur reconnaît donc les modifs locales, les suppressions et les retraits exactement comme le premier.
+  La config reste petite (quelques Ko) : Anki l'envoie en entier à chaque synchronisation.
+- **Empreintes reçues (synchronisées).** Dans le dossier des médias de la collection : `_deckdock_<deck_id>_<edition>.json`, au format `deckdock-received/1`. Pour chaque version installée, on garde un instantané `received` (GUID → empreinte reçue : un hash court des champs reçus et la liste des tags reçus). `latest` désigne le dernier instantané écrit, et on n'en garde que deux : celui qui vient d'être écrit et le `latest` précédent. La synchronisation des médias d'AnkiWeb recopie ce fichier, et « Vérifier les médias » le garde parce que son nom commence par `_`. C'est de l'ordre de quelques centaines de Ko pour 10 000 notes. Un second ordinateur reconnaît donc les modifs locales, les suppressions et les retraits exactement comme le premier.
+  - Le fichier est lu avant chaque plan, avec l'instantané de `installed_version` (à défaut `latest`, puis rien). Il est écrit après une application réussie, hors de l'étape d'annulation, et seulement si son contenu change. Si l'écriture échoue, la mise à jour reste faite et l'erreur est journalisée.
+  - Annuler une mise à jour rétablit `installed_version` dans la config mais pas le fichier ; l'instantané de la version précédente sert alors de base, d'où une clé par version.
+  - Le fichier est rattaché au deck et à l'édition, pas à l'abonnement : retirer puis rajouter la même édition retrouve sa base. Retirer un abonnement ne le supprime pas.
 - **Versions reçues complètes (locales).** Dans le dossier du profil : `<profil>/deckdock/<abonnement>.json` (GUID → champs reçus en entier). Elles ne servent qu'à la future comparaison en trois versions, et leur absence ne gêne jamais le MVP.
 - **Retirer un abonnement** : on arrête le suivi et on supprime le fichier de versions reçues. Le deck et les notes restent dans Anki.
 
@@ -227,7 +230,7 @@ Si l'utilisateur a modifié lui-même les templates d'un notetype géré par Dec
 4. Les **notes existantes ne sont pas déplacées** de sous-deck.
 5. Les **templates et le CSS sont écrasés** à la mise à jour, même s'ils ont été modifiés localement (et c'est signalé). Les templates sont associés par position.
 6. *(décidé avec Nayan)* **L'ajout de champs à la fin est accepté après confirmation explicite** de la synchronisation complète, comme chez AnkiHub. **Tout autre changement de structure est refusé** (champ supprimé, renommé ou réordonné, template ajouté ou supprimé, `kind` changé), pour ne jamais supprimer de cartes ni perdre de contenu. Les règles sont documentées pour les auteurs et leurs agents dans `spec/deckdock-1.md` (« Changing a published notetype ») et dans l'AGENTS.md du template.
-7. **Une empreinte synchronisée** de chaque note reçue (dans la config de collection) permet de fonctionner proprement sur plusieurs ordinateurs. Les versions complètes, réservées à la future comparaison en trois versions, restent locales.
+7. **Une empreinte synchronisée** de chaque note reçue (dans un fichier du dossier des médias) permet de fonctionner proprement sur plusieurs ordinateurs. Les versions complètes, réservées à la future comparaison en trois versions, restent locales.
 8. Une **note supprimée par l'utilisateur n'est jamais recréée**.
 9. Une **note déjà présente avec le même GUID** mais hors de l'abonnement est mise en conflit, jamais adoptée de force.
 10. **Les médias ne sont jamais écrasés.** Une image qui change reçoit un nouveau nom local, et les références sont réécrites dans les champs, les templates et le CSS.

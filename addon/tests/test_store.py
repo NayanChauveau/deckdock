@@ -3,7 +3,7 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -59,11 +59,28 @@ def test_round_trip_with_media_and_received() -> None:
     payload = store.dump_catalog(catalog)
     assert payload["version"] == store.SCHEMA_VERSION
     assert json.loads(json.dumps(payload)) == payload
-    assert store.load_catalog(payload) == catalog
+    dumped = cast(list[dict[str, Any]], payload["subscriptions"])
+    assert all("received" not in s for s in dumped)
+    stored = Catalog((replace(sub, received={}), make_sub(id="s2", edition="en")))
+    assert store.load_catalog(payload) == stored
     col = FakeCol()
     store.write_catalog(col, catalog)
     assert CONFIG_KEY in col.data
-    assert store.read_catalog(col) == catalog
+    assert store.read_catalog(col) == stored
+
+
+def test_load_ignores_received_key() -> None:
+    payload = _wrap(received={"g": {"fingerprint": "a", "tags": []}})
+    assert store.load_catalog(payload) == Catalog((make_sub(),))
+
+
+def test_catalog_with_5000_received_dumps_under_10kb() -> None:
+    received = {
+        f"guid-{i:05d}": Received(f"{i:016x}", ("tag-a", "tag-b")) for i in range(5000)
+    }
+    sub = make_sub(installed_version="v1", received=received)
+    blob = json.dumps(store.dump_catalog(Catalog((sub,))), separators=(",", ":"))
+    assert len(blob.encode("utf-8")) < 10_000
 
 
 def test_load_none_is_empty() -> None:
@@ -88,7 +105,6 @@ def test_load_rejects_unknown_version_and_keys() -> None:
     _rejects({"version": 1, "subscriptions": {}})
     _rejects(_wrap(extra=1))
     _rejects({"version": 1, "subscriptions": [{"id": "x"}]})
-    _rejects(_wrap(received={"g": {"fingerprint": "a", "tags": [], "x": 1}}))
     _rejects(_wrap(media={"a": {"sha256": "a", "local_name": "b", "x": 1}}))
     _rejects(_wrap(notetype_ids={"basic": "7"}))
     _rejects(_wrap(root_deck_anki_id="1"))
@@ -145,3 +161,98 @@ def test_check_is_due() -> None:
     assert not store.check_is_due((now - timedelta(hours=23)).isoformat(), now, 24)
     assert store.check_is_due((now - timedelta(hours=24)).isoformat(), now, 24)
     assert store.check_is_due("2026-11-23T00:00:00", now, 24)
+
+
+R1 = {"g1": Received("0123456789abcdef", ("t1", "é"))}
+R2 = {"g1": Received("fedcba9876543210", ("t1",)), "g2": Received("1" * 16, ())}
+R3 = {"g3": Received("2" * 16, ("x",))}
+
+
+def test_received_path(tmp_path: Path) -> None:
+    path = store.received_path(tmp_path, "deck-1", "fr")
+    assert path == tmp_path / "_deckdock_deck-1_fr.json"
+
+
+def test_received_round_trip_and_file_format(tmp_path: Path) -> None:
+    path = store.received_path(tmp_path, "deck-1", "fr")
+    store.write_received(path, "deck-1", "fr", "v1", R1)
+    assert store.read_received(path, "v1") == R1
+    text = path.read_text(encoding="utf-8")
+    assert "é" in text and ", " not in text and ": " not in text
+    assert json.loads(text) == {
+        "format": "deckdock-received/1",
+        "deck_id": "deck-1",
+        "edition": "fr",
+        "latest": "v1",
+        "snapshots": {
+            "v1": {"g1": {"fingerprint": "0123456789abcdef", "tags": ["t1", "é"]}}
+        },
+    }
+    assert [p.name for p in tmp_path.iterdir()] == [path.name]
+
+
+def test_received_keeps_two_snapshots(tmp_path: Path) -> None:
+    path = store.received_path(tmp_path, "deck-1", "fr")
+    store.write_received(path, "deck-1", "fr", "v1", R1)
+    store.write_received(path, "deck-1", "fr", "v2", R2)
+    assert store.read_received(path, "v1") == R1
+    assert store.read_received(path, "v2") == R2
+    store.write_received(path, "deck-1", "fr", "v3", R3)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["latest"] == "v3"
+    assert set(data["snapshots"]) == {"v2", "v3"}
+    # Rewriting the latest version keeps the previous snapshot.
+    store.write_received(path, "deck-1", "fr", "v3", R1)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert set(data["snapshots"]) == {"v2", "v3"}
+    assert store.read_received(path, "v3") == R1
+
+
+def test_received_snapshot_is(tmp_path: Path) -> None:
+    path = store.received_path(tmp_path, "deck-1", "fr")
+    assert not store.received_snapshot_is(path, "v1", {})
+    store.write_received(path, "deck-1", "fr", "v1", R1)
+    assert store.received_snapshot_is(path, "v1", R1)
+    assert not store.received_snapshot_is(path, "v1", R2)
+    store.write_received(path, "deck-1", "fr", "v2", R1)
+    assert not store.received_snapshot_is(path, "v1", R1)
+    assert store.received_snapshot_is(path, "v2", R1)
+
+
+def test_received_falls_back_to_latest_then_empty(tmp_path: Path) -> None:
+    path = store.received_path(tmp_path, "deck-1", "fr")
+    assert store.read_received(path, "v1") == {}
+    store.write_received(path, "deck-1", "fr", "v1", R1)
+    store.write_received(path, "deck-1", "fr", "v2", R2)
+    assert store.read_received(path, "v9") == R2
+    assert store.read_received(path, None) == {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["latest"] = "gone"
+    _ = path.write_text(json.dumps(data), encoding="utf-8")
+    assert store.read_received(path, "v9") == {}
+
+
+def test_received_tolerates_bad_files(tmp_path: Path) -> None:
+    path = store.received_path(tmp_path, "deck-1", "fr")
+    store.write_received(path, "deck-1", "fr", "v1", R1)
+    good = json.loads(path.read_text(encoding="utf-8"))
+
+    def check(payload: object) -> None:
+        _ = path.write_text(json.dumps(payload), encoding="utf-8")
+        assert store.read_received(path, "v1") == {}
+
+    _ = path.write_text("{not json", encoding="utf-8")
+    assert store.read_received(path, "v1") == {}
+    _ = path.write_bytes(b"\xff\xfe")
+    assert store.read_received(path, "v1") == {}
+    check([1])
+    check({**good, "format": "deckdock-received/2"})
+    check({**good, "deck_id": "other"})
+    check({**good, "edition": "en"})
+    check({**good, "snapshots": []})
+    check({**good, "snapshots": {"v1": {"g1": {"fingerprint": 1, "tags": []}}}})
+    check({**good, "snapshots": {"v1": {"g1": {"fingerprint": "a", "tags": [2]}}}})
+    check({**good, "snapshots": {"v1": {"g1": {"fingerprint": "a"}}}})
+    path.unlink()
+    path.mkdir()
+    assert store.read_received(path, "v1") == {}
