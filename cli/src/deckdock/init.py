@@ -27,8 +27,10 @@ def slugify(name: str) -> str:
 
 
 def init_project(target: Path, *, deck_id: str | None = None) -> None:
-    """Create a Hello World project in `target` (missing or empty folder)."""
-    if target.exists() and (not target.is_dir() or any(target.iterdir())):
+    """Create a Hello World project in `target` (missing folder, or empty apart from `.git`)."""
+    if target.exists() and (
+        not target.is_dir() or any(e.name != ".git" for e in target.iterdir())
+    ):
         raise FileExistsError(f"{target}: target is not empty")
     if deck_id is None:
         deck_id = slugify(target.resolve().name)

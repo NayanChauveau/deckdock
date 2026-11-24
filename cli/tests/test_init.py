@@ -50,6 +50,21 @@ def test_init_accepts_existing_empty_dir(tmp_path: Path):
     assert (tmp_path / "deckdock.yaml").is_file()
 
 
+def test_init_allows_existing_git_dir(tmp_path: Path):
+    (tmp_path / ".git").mkdir()
+    _ = (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    init_project(tmp_path)
+    assert (tmp_path / "deckdock.yaml").is_file()
+    assert (tmp_path / ".git" / "HEAD").is_file()
+
+
+def test_init_refuses_git_dir_plus_other_file(tmp_path: Path):
+    (tmp_path / ".git").mkdir()
+    _ = (tmp_path / "keep.txt").write_text("x", encoding="utf-8")
+    with pytest.raises(FileExistsError):
+        init_project(tmp_path)
+
+
 @pytest.mark.parametrize(
     ("name", "expected"),
     [("My Deck!", "my-deck"), ("--A__b--", "a-b"), ("日本", "my-deck"), ("", "my-deck")],
