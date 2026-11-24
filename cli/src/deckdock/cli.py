@@ -19,7 +19,9 @@ COMMANDS = ("init", "validate", "build", "check")
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="deckdock")
-    _ = parser.add_argument("--version", action="store_true", help="show version and exit")
+    _ = parser.add_argument(
+        "--version", action="store_true", help="show version and exit"
+    )
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     for name in COMMANDS:
         if name in ("check", "validate", "build", "init"):
@@ -27,14 +29,28 @@ def build_parser() -> argparse.ArgumentParser:
         # Stubs: filled in by later tasks.
         _ = subparsers.add_parser(name, help=f"{name} (not implemented yet)")
     init = subparsers.add_parser("init", help="create a Hello World deck project")
-    _ = init.add_argument("target", nargs="?", default=".", help="folder to create (default: .)")
+    _ = init.add_argument(
+        "target", nargs="?", default=".", help="folder to create (default: .)"
+    )
     check = subparsers.add_parser("check", help="check compiled deckdock/1 editions")
-    _ = check.add_argument("dist", nargs="?", default="dist", help="dist directory (default: dist)")
-    validate = subparsers.add_parser("validate", help="validate the YAML sources of a project")
-    _ = validate.add_argument("root", nargs="?", default=".", help="project root (default: .)")
-    build_cmd = subparsers.add_parser("build", help="compile a project into dist/<edition>/")
-    _ = build_cmd.add_argument("root", nargs="?", default=".", help="project root (default: .)")
-    _ = build_cmd.add_argument("--out", default=None, help="output directory (default: ROOT/dist)")
+    _ = check.add_argument(
+        "dist", nargs="?", default="dist", help="dist directory (default: dist)"
+    )
+    validate = subparsers.add_parser(
+        "validate", help="validate the YAML sources of a project"
+    )
+    _ = validate.add_argument(
+        "root", nargs="?", default=".", help="project root (default: .)"
+    )
+    build_cmd = subparsers.add_parser(
+        "build", help="compile a project into dist/<edition>/"
+    )
+    _ = build_cmd.add_argument(
+        "root", nargs="?", default=".", help="project root (default: .)"
+    )
+    _ = build_cmd.add_argument(
+        "--out", default=None, help="output directory (default: ROOT/dist)"
+    )
     return parser
 
 

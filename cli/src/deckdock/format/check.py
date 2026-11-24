@@ -28,7 +28,14 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 _TOP_KEYS = ("format", "deck", "notetypes", "notes", "media")
 _DECK_REQUIRED = ("id", "edition", "name", "language", "version")
-_DECK_OPTIONAL = ("anki_id", "options", "description", "homepage", "license", "generator")
+_DECK_OPTIONAL = (
+    "anki_id",
+    "options",
+    "description",
+    "homepage",
+    "license",
+    "generator",
+)
 _OPTION_KEYS = ("new_per_day", "reviews_per_day")
 _NOTETYPE_REQUIRED = ("id", "name", "kind", "fields", "templates", "css")
 _TEMPLATE_KEYS = ("name", "front", "back")
@@ -53,7 +60,9 @@ def _is_int(value: object) -> bool:
 
 
 def _is_str_list(value: object) -> bool:
-    return isinstance(value, list) and all(isinstance(v, str) for v in cast(list[object], value))
+    return isinstance(value, list) and all(
+        isinstance(v, str) for v in cast(list[object], value)
+    )
 
 
 @final
@@ -95,7 +104,9 @@ class _Checker:
             if key not in required and key not in optional:
                 self.error(where, f"unknown key '{key}'")
 
-    def string(self, obj: dict[str, object], key: str, where: str, *, non_empty: bool = False) -> str | None:
+    def string(
+        self, obj: dict[str, object], key: str, where: str, *, non_empty: bool = False
+    ) -> str | None:
         if key not in obj:
             return None
         value = obj[key]
@@ -107,7 +118,9 @@ class _Checker:
             return None
         return value
 
-    def integer(self, obj: dict[str, object], key: str, where: str, *, minimum: int) -> int | None:
+    def integer(
+        self, obj: dict[str, object], key: str, where: str, *, minimum: int
+    ) -> int | None:
         if key not in obj:
             return None
         value = obj[key]
@@ -131,7 +144,9 @@ class _Checker:
             self.error("format", f"format must be '{FORMAT}'")
         if "deck" in root:
             self.check_deck_object(root["deck"])
-        notetype_fields = self.check_notetypes(root["notetypes"]) if "notetypes" in root else {}
+        notetype_fields = (
+            self.check_notetypes(root["notetypes"]) if "notetypes" in root else {}
+        )
         if "notes" in root:
             self.check_notes(root["notes"], notetype_fields)
         if "media" in root:
@@ -144,11 +159,23 @@ class _Checker:
         self.keys(deck, "deck", _DECK_REQUIRED, _DECK_OPTIONAL)
         deck_id = self.string(deck, "id", "deck")
         if deck_id is not None and not SLUG_RE.fullmatch(deck_id):
-            self.error("deck.id", f"invalid id {deck_id!r} (lowercase letters, digits and single dashes)")
+            self.error(
+                "deck.id",
+                f"invalid id {deck_id!r} (lowercase letters, digits and single dashes)",
+            )
         edition = self.string(deck, "edition", "deck", non_empty=True)
-        if edition is not None and (edition in (".", "..") or "/" in edition or "\\" in edition):
+        if edition is not None and (
+            edition in (".", "..") or "/" in edition or "\\" in edition
+        ):
             self.error("deck.edition", f"invalid edition {edition!r} (no path allowed)")
-        for key in ("name", "version", "description", "homepage", "license", "generator"):
+        for key in (
+            "name",
+            "version",
+            "description",
+            "homepage",
+            "license",
+            "generator",
+        ):
             _ = self.string(deck, key, "deck")
         if "language" in deck:
             language = deck["language"]
@@ -194,7 +221,9 @@ class _Checker:
                 _ = fields_by_id.setdefault(notetype_id, names)
         return fields_by_id
 
-    def check_field_names(self, notetype: dict[str, object], where: str) -> list[str] | None:
+    def check_field_names(
+        self, notetype: dict[str, object], where: str
+    ) -> list[str] | None:
         if "fields" not in notetype:
             return None
         raw = notetype["fields"]
@@ -211,7 +240,9 @@ class _Checker:
             valid = False
         return names if valid else None
 
-    def check_templates(self, notetype: dict[str, object], where: str, *, is_cloze: bool) -> None:
+    def check_templates(
+        self, notetype: dict[str, object], where: str, *, is_cloze: bool
+    ) -> None:
         if "templates" not in notetype:
             return
         templates = self.sequence(notetype["templates"], f"{where}.templates")
@@ -220,7 +251,9 @@ class _Checker:
         if not templates:
             self.error(f"{where}.templates", "must not be empty")
         elif is_cloze and len(templates) != 1:
-            self.error(f"{where}.templates", "a cloze notetype must have exactly one template")
+            self.error(
+                f"{where}.templates", "a cloze notetype must have exactly one template"
+            )
         for index, raw in enumerate(templates):
             template_where = f"{where}.templates[{index}]"
             template = self.mapping(raw, template_where)
@@ -272,9 +305,13 @@ class _Checker:
             return
         for tag in cast(list[str], tags):
             if not tag or any(char.isspace() for char in tag):
-                self.error(f"{where}.tags", f"invalid tag {tag!r} (non-empty, no spaces)")
+                self.error(
+                    f"{where}.tags", f"invalid tag {tag!r} (non-empty, no spaces)"
+                )
 
-    def check_note_fields(self, note: dict[str, object], where: str, names: list[str] | None) -> None:
+    def check_note_fields(
+        self, note: dict[str, object], where: str, names: list[str] | None
+    ) -> None:
         if "fields" not in note:
             return
         fields = self.mapping(note["fields"], f"{where}.fields")
@@ -307,23 +344,36 @@ class _Checker:
             filename = self.string(entry, "filename", where, non_empty=True)
             if filename is not None:
                 if "/" in filename or "\\" in filename or filename in (".", ".."):
-                    self.error(f"{where}.filename", f"invalid filename {filename!r} (no path allowed)")
+                    self.error(
+                        f"{where}.filename",
+                        f"invalid filename {filename!r} (no path allowed)",
+                    )
                 if filename in seen:
                     self.error(f"{where}.filename", f"duplicate filename {filename!r}")
                 seen.add(filename)
             sha256 = self.string(entry, "sha256", where)
             if sha256 is not None and not _SHA256.fullmatch(sha256):
-                self.error(f"{where}.sha256", "must be 64 lowercase hexadecimal characters")
+                self.error(
+                    f"{where}.sha256", "must be 64 lowercase hexadecimal characters"
+                )
             size = self.integer(entry, "size", where, minimum=0)
             if size is not None:
                 if size > MAX_MEDIA_BYTES:
-                    self.error(f"{where}.size", f"file too large ({size} > {MAX_MEDIA_BYTES} bytes)")
+                    self.error(
+                        f"{where}.size",
+                        f"file too large ({size} > {MAX_MEDIA_BYTES} bytes)",
+                    )
                 total += size
         if total > MAX_TOTAL_MEDIA_BYTES:
-            self.error("media", f"total media size too large ({total} > {MAX_TOTAL_MEDIA_BYTES} bytes)")
+            self.error(
+                "media",
+                f"total media size too large ({total} > {MAX_TOTAL_MEDIA_BYTES} bytes)",
+            )
 
 
-def check_deck(data: object, *, path: str = "deck.json", strict: bool = True) -> list[Issue]:
+def check_deck(
+    data: object, *, path: str = "deck.json", strict: bool = True
+) -> list[Issue]:
     """Check the structure of a parsed deck.json; never touches the disk.
 
     `strict` rejects unknown keys (producers). Consumers pass `strict=False`: unknown
@@ -339,7 +389,13 @@ def check_deck(data: object, *, path: str = "deck.json", strict: bool = True) ->
 
 def _is_local_reference(name: str) -> bool:
     """Whether `name` designates a bare media filename (not a URL, path or template tag)."""
-    return bool(name) and "://" not in name and "/" not in name and not name.startswith("data:") and "{{" not in name
+    return (
+        bool(name)
+        and "://" not in name
+        and "/" not in name
+        and not name.startswith("data:")
+        and "{{" not in name
+    )
 
 
 def _references(text: str) -> list[str]:
@@ -360,7 +416,9 @@ def _texts(deck: dict[str, object]) -> Iterator[tuple[str, str]]:
     for index, notetype in enumerate(cast(list[dict[str, object]], deck["notetypes"])):
         where = f"notetypes[{index}]"
         yield f"{where}.css", cast(str, notetype["css"])
-        for t_index, template in enumerate(cast(list[dict[str, str]], notetype["templates"])):
+        for t_index, template in enumerate(
+            cast(list[dict[str, str]], notetype["templates"])
+        ):
             yield f"{where}.templates[{t_index}].front", template["front"]
             yield f"{where}.templates[{t_index}].back", template["back"]
 
@@ -391,7 +449,12 @@ def _check_edition(edition_dir: Path, display: str, *, strict: bool) -> list[Iss
 
     edition = cast(dict[str, object], deck["deck"])["edition"]
     if edition != edition_dir.name:
-        issues.append(Issue(display, f"deck.edition {edition!r} does not match directory {edition_dir.name!r}"))
+        issues.append(
+            Issue(
+                display,
+                f"deck.edition {edition!r} does not match directory {edition_dir.name!r}",
+            )
+        )
 
     for index, entry in enumerate(entries):
         filename = cast(str, entry["filename"])
@@ -403,21 +466,37 @@ def _check_edition(edition_dir: Path, display: str, *, strict: bool) -> list[Iss
         try:
             size = file.stat().st_size
             if size != entry["size"]:
-                issues.append(Issue(display, f"{where}: size mismatch for '{filename}' (listed {entry['size']}, on disk {size})"))
+                issues.append(
+                    Issue(
+                        display,
+                        f"{where}: size mismatch for '{filename}' (listed {entry['size']}, on disk {size})",
+                    )
+                )
             elif _sha256_of(file) != entry["sha256"]:
-                issues.append(Issue(display, f"{where}: sha256 mismatch for '{filename}'"))
+                issues.append(
+                    Issue(display, f"{where}: sha256 mismatch for '{filename}'")
+                )
         except OSError as exc:
-            issues.append(Issue(display, f"{where}: cannot read 'media/{filename}': {exc.strerror or exc}"))
+            issues.append(
+                Issue(
+                    display,
+                    f"{where}: cannot read 'media/{filename}': {exc.strerror or exc}",
+                )
+            )
 
     if media_dir.is_dir():
         for file in sorted(media_dir.iterdir()):
             if file.name not in listed:
-                issues.append(Issue(display, f"media/{file.name}: file not listed in 'media'"))
+                issues.append(
+                    Issue(display, f"media/{file.name}: file not listed in 'media'")
+                )
 
     for where, text in _texts(deck):
         for name in _references(text):
             if name not in listed:
-                issues.append(Issue(display, f"{where}: references unlisted media '{name}'"))
+                issues.append(
+                    Issue(display, f"{where}: references unlisted media '{name}'")
+                )
     return issues
 
 
@@ -431,5 +510,9 @@ def check_dist(dist_dir: Path, *, strict: bool = True) -> list[Issue]:
     root_name = dist_dir.resolve().name
     issues: list[Issue] = []
     for edition_dir in editions:
-        issues.extend(_check_edition(edition_dir, f"{root_name}/{edition_dir.name}/deck.json", strict=strict))
+        issues.extend(
+            _check_edition(
+                edition_dir, f"{root_name}/{edition_dir.name}/deck.json", strict=strict
+            )
+        )
     return issues

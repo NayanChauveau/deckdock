@@ -27,7 +27,10 @@ _SPECS: dict[str, _Spec] = {
         "name": "DeckDock Basic (and reversed)",
         "kind": "standard",
         "fields": ["Front", "Back"],
-        "templates": [("basic.front", "basic.back"), ("reversed.front2", "reversed.back2")],
+        "templates": [
+            ("basic.front", "basic.back"),
+            ("reversed.front2", "reversed.back2"),
+        ],
     },
     "cloze": {
         "name": "DeckDock Cloze",

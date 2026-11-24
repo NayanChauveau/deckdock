@@ -41,8 +41,13 @@ def test_schema_rejects_structural_invalid_examples():
     # Structural rules live in the schema too; cross-object rules (duplicates, field
     # matching, unknown notetype, total size) are only enforced by the checker.
     cross_object = {
-        "duplicate-notetype-id", "duplicate-guid", "unknown-notetype", "note-missing-field",
-        "note-unknown-field", "duplicate-media-filename", "media-total-too-large",
+        "duplicate-notetype-id",
+        "duplicate-guid",
+        "unknown-notetype",
+        "note-missing-field",
+        "note-unknown-field",
+        "duplicate-media-filename",
+        "media-total-too-large",
     }
     for p in INVALID:
         if p.stem not in cross_object:

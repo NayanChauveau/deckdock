@@ -58,7 +58,9 @@ def _choices_html(content: McqContent, media: set[str]) -> str:
     return f'<ol class="dd-choices">{"".join(items)}</ol>'
 
 
-def _fields(content: BasicContent | ClozeContent | McqContent, media: set[str]) -> JsonObject:
+def _fields(
+    content: BasicContent | ClozeContent | McqContent, media: set[str]
+) -> JsonObject:
     def md(text: str) -> str:
         out, found = render(text)
         media.update(found)
@@ -75,7 +77,9 @@ def _fields(content: BasicContent | ClozeContent | McqContent, media: set[str]) 
     }
 
 
-def compile_edition(project: Project, edition: str, version: str) -> tuple[JsonObject, set[str]]:
+def compile_edition(
+    project: Project, edition: str, version: str
+) -> tuple[JsonObject, set[str]]:
     """Compile one edition; return the deck and the root-relative media paths it references."""
     notetypes: dict[str, JsonObject] = {}
     notes: list[JsonObject] = []
@@ -183,7 +187,11 @@ def build(root: Path, out: Path, version: str) -> list[Issue]:
             media_dir.mkdir(exist_ok=True)
             _ = shutil.copyfile(source, media_dir / name)
             entries.append(
-                {"filename": name, "sha256": _sha256(source), "size": source.stat().st_size}
+                {
+                    "filename": name,
+                    "sha256": _sha256(source),
+                    "size": source.stat().st_size,
+                }
             )
         deck["media"] = entries
         _write_json(out / edition / "deck.json", deck)
