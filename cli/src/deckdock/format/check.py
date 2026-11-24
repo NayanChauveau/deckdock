@@ -23,7 +23,7 @@ MAX_NOTES = 50_000
 MAX_MEDIA_BYTES = 10_485_760
 MAX_TOTAL_MEDIA_BYTES = 524_288_000
 
-_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 _TOP_KEYS = ("format", "deck", "notetypes", "notes", "media")
@@ -143,7 +143,7 @@ class _Checker:
             return
         self.keys(deck, "deck", _DECK_REQUIRED, _DECK_OPTIONAL)
         deck_id = self.string(deck, "id", "deck")
-        if deck_id is not None and not _SLUG.fullmatch(deck_id):
+        if deck_id is not None and not SLUG_RE.fullmatch(deck_id):
             self.error("deck.id", f"invalid id {deck_id!r} (lowercase letters, digits and single dashes)")
         edition = self.string(deck, "edition", "deck", non_empty=True)
         if edition is not None and (edition in (".", "..") or "/" in edition or "\\" in edition):
