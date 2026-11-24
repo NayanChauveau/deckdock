@@ -8,8 +8,10 @@ media references found in fields, templates and CSS.
 """
 
 import hashlib
+import html
 import json
 import re
+import urllib.parse
 from collections.abc import Iterator
 from pathlib import Path
 from typing import cast, final
@@ -56,8 +58,9 @@ def _is_str_list(value: object) -> bool:
 
 @final
 class _Checker:
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, *, strict: bool) -> None:
         self.path = path
+        self.strict = strict
         self.issues: list[Issue] = []
 
     def error(self, where: str, message: str) -> None:
@@ -86,6 +89,8 @@ class _Checker:
         for key in required:
             if key not in obj:
                 self.error(where, f"missing key '{key}'")
+        if not self.strict:
+            return
         for key in obj:
             if key not in required and key not in optional:
                 self.error(where, f"unknown key '{key}'")
@@ -138,11 +143,11 @@ class _Checker:
             return
         self.keys(deck, "deck", _DECK_REQUIRED, _DECK_OPTIONAL)
         deck_id = self.string(deck, "id", "deck")
-        if deck_id is not None and not _SLUG.match(deck_id):
+        if deck_id is not None and not _SLUG.fullmatch(deck_id):
             self.error("deck.id", f"invalid id {deck_id!r} (lowercase letters, digits and single dashes)")
         edition = self.string(deck, "edition", "deck", non_empty=True)
-        if edition is not None and "/" in edition:
-            self.error("deck.edition", "must not contain '/'")
+        if edition is not None and (edition in (".", "..") or "/" in edition or "\\" in edition):
+            self.error("deck.edition", f"invalid edition {edition!r} (no path allowed)")
         for key in ("name", "version", "description", "homepage", "license", "generator"):
             _ = self.string(deck, key, "deck")
         if "language" in deck:
@@ -154,7 +159,7 @@ class _Checker:
             options = self.mapping(deck["options"], "deck.options")
             if options is not None:
                 for key in options:
-                    if key not in _OPTION_KEYS:
+                    if self.strict and key not in _OPTION_KEYS:
                         self.error("deck.options", f"unknown key '{key}'")
                 for key in _OPTION_KEYS:
                     _ = self.integer(options, key, "deck.options", minimum=0)
@@ -307,7 +312,7 @@ class _Checker:
                     self.error(f"{where}.filename", f"duplicate filename {filename!r}")
                 seen.add(filename)
             sha256 = self.string(entry, "sha256", where)
-            if sha256 is not None and not _SHA256.match(sha256):
+            if sha256 is not None and not _SHA256.fullmatch(sha256):
                 self.error(f"{where}.sha256", "must be 64 lowercase hexadecimal characters")
             size = self.integer(entry, "size", where, minimum=0)
             if size is not None:
@@ -318,9 +323,13 @@ class _Checker:
             self.error("media", f"total media size too large ({total} > {MAX_TOTAL_MEDIA_BYTES} bytes)")
 
 
-def check_deck(data: object, *, path: str = "deck.json") -> list[Issue]:
-    """Check the structure of a parsed deck.json; never touches the disk."""
-    checker = _Checker(path)
+def check_deck(data: object, *, path: str = "deck.json", strict: bool = True) -> list[Issue]:
+    """Check the structure of a parsed deck.json; never touches the disk.
+
+    `strict` rejects unknown keys (producers). Consumers pass `strict=False`: unknown
+    keys are ignored but every other rule is still enforced.
+    """
+    checker = _Checker(path, strict=strict)
     checker.check_root(data)
     return checker.issues
 
@@ -337,6 +346,7 @@ def _references(text: str) -> list[str]:
     found: list[str] = []
     for pattern in _REFERENCE_PATTERNS:
         for name in cast(list[str], pattern.findall(text)):
+            name = urllib.parse.unquote(html.unescape(name))
             if _is_local_reference(name) and name not in found:
                 found.append(name)
     return found
@@ -355,7 +365,15 @@ def _texts(deck: dict[str, object]) -> Iterator[tuple[str, str]]:
             yield f"{where}.templates[{t_index}].back", template["back"]
 
 
-def _check_edition(edition_dir: Path, display: str) -> list[Issue]:
+def _sha256_of(file: Path) -> str:
+    digest = hashlib.sha256()
+    with file.open("rb") as handle:
+        while chunk := handle.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _check_edition(edition_dir: Path, display: str, *, strict: bool) -> list[Issue]:
     deck_json = edition_dir / "deck.json"
     try:
         data = cast(object, json.loads(deck_json.read_text(encoding="utf-8")))
@@ -363,13 +381,17 @@ def _check_edition(edition_dir: Path, display: str) -> list[Issue]:
         return [Issue(display, f"cannot read file: {exc}")]
     except json.JSONDecodeError as exc:
         return [Issue(display, f"invalid JSON: {exc.msg}", exc.lineno)]
-    issues = check_deck(data, path=display)
+    issues = check_deck(data, path=display, strict=strict)
     if issues:
         return issues
     deck = cast(dict[str, object], data)
     entries = cast(list[dict[str, object]], deck["media"])
     listed = {cast(str, entry["filename"]): entry for entry in entries}
     media_dir = edition_dir / "media"
+
+    edition = cast(dict[str, object], deck["deck"])["edition"]
+    if edition != edition_dir.name:
+        issues.append(Issue(display, f"deck.edition {edition!r} does not match directory {edition_dir.name!r}"))
 
     for index, entry in enumerate(entries):
         filename = cast(str, entry["filename"])
@@ -378,11 +400,14 @@ def _check_edition(edition_dir: Path, display: str) -> list[Issue]:
         if not file.is_file():
             issues.append(Issue(display, f"{where}: missing file 'media/{filename}'"))
             continue
-        content = file.read_bytes()
-        if len(content) != entry["size"]:
-            issues.append(Issue(display, f"{where}: size mismatch for '{filename}' (listed {entry['size']}, on disk {len(content)})"))
-        if hashlib.sha256(content).hexdigest() != entry["sha256"]:
-            issues.append(Issue(display, f"{where}: sha256 mismatch for '{filename}'"))
+        try:
+            size = file.stat().st_size
+            if size != entry["size"]:
+                issues.append(Issue(display, f"{where}: size mismatch for '{filename}' (listed {entry['size']}, on disk {size})"))
+            elif _sha256_of(file) != entry["sha256"]:
+                issues.append(Issue(display, f"{where}: sha256 mismatch for '{filename}'"))
+        except OSError as exc:
+            issues.append(Issue(display, f"{where}: cannot read 'media/{filename}': {exc.strerror or exc}"))
 
     if media_dir.is_dir():
         for file in sorted(media_dir.iterdir()):
@@ -396,7 +421,7 @@ def _check_edition(edition_dir: Path, display: str) -> list[Issue]:
     return issues
 
 
-def check_dist(dist_dir: Path) -> list[Issue]:
+def check_dist(dist_dir: Path, *, strict: bool = True) -> list[Issue]:
     """Check every `<dist_dir>/<edition>/deck.json`, including media files and references."""
     if not dist_dir.is_dir():
         return [Issue(str(dist_dir), "not a directory")]
@@ -406,5 +431,5 @@ def check_dist(dist_dir: Path) -> list[Issue]:
     root_name = dist_dir.resolve().name
     issues: list[Issue] = []
     for edition_dir in editions:
-        issues.extend(_check_edition(edition_dir, f"{root_name}/{edition_dir.name}/deck.json"))
+        issues.extend(_check_edition(edition_dir, f"{root_name}/{edition_dir.name}/deck.json", strict=strict))
     return issues

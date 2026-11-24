@@ -14,7 +14,7 @@
     "media": { "type": "array", "items": { "$ref": "#/$defs/media" } }
   },
   "$defs": {
-    "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "not": { "pattern": "\\n" } },
     "ankiId": { "type": "integer", "exclusiveMinimum": 0 },
     "deck": {
       "type": "object",
@@ -22,7 +22,7 @@
       "required": ["id", "edition", "name", "language", "version"],
       "properties": {
         "id": { "$ref": "#/$defs/slug" },
-        "edition": { "type": "string", "minLength": 1, "pattern": "^[^/]+$" },
+        "edition": { "type": "string", "minLength": 1, "pattern": "^(?!\\.{1,2}$)[^/\\\\]+$" },
         "name": { "type": "string" },
         "description": { "type": "string" },
         "language": { "type": "array", "minItems": 1, "items": { "type": "string" } },
@@ -90,7 +90,7 @@
       "required": ["filename", "sha256", "size"],
       "properties": {
         "filename": { "type": "string", "pattern": "^(?!\\.{1,2}$)[^/\\\\]+$" },
-        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "not": { "pattern": "\\n" } },
         "size": { "type": "integer", "minimum": 0, "maximum": 10485760 }
       }
     }
