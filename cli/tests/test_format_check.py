@@ -253,3 +253,79 @@ def test_cli_check_defaults_to_dist(tmp_path: pathlib.Path, monkeypatch: pytest.
     _ = write_dist(tmp_path, minimal())
     monkeypatch.chdir(tmp_path)
     assert main(["check"]) == 0
+
+
+def test_id_and_sha256_reject_trailing_newline():
+    data = minimal()
+    cast(Deck, data["deck"])["id"] = "hello-deck\n"
+    assert "deck.id" in messages(data)
+    data = minimal()
+    data["media"] = [{"filename": "a.png", "sha256": "0" * 64 + "\n", "size": 1}]
+    assert "sha256" in messages(data)
+
+
+def test_strict_flag_controls_unknown_keys():
+    data = minimal()
+    data["extra"] = 1
+    cast(Deck, data["deck"])["options"] = {"new_per_day": 1, "extra": 2}
+    first_note(data)["extra"] = 3
+    assert check_deck(data) != []
+    assert check_deck(data, strict=False) == []
+
+
+def test_non_strict_still_enforces_other_rules():
+    data = minimal()
+    data["extra"] = 1
+    first_note(data)["guid"] = ""
+    assert check_deck(data, strict=False) != []
+
+
+def test_check_dist_strict_flag(tmp_path: pathlib.Path):
+    data = minimal()
+    data["extra"] = 1
+    dist = write_dist(tmp_path, data)
+    assert check_dist(dist) != []
+    assert check_dist(dist, strict=False) == []
+
+
+@pytest.mark.parametrize(
+    ("filename", "text"),
+    [("a&b.png", '<img src="a&amp;b.png">'), ("a b.png", '<img src="a%20b.png">'), ("a b.png", '<img src="a b.png">')],
+)
+def test_references_are_unescaped_and_unquoted(tmp_path: pathlib.Path, filename: str, text: str):
+    data = with_media(minimal(), filename, b"x")
+    cast(dict[str, str], first_note(data)["fields"])["Front"] = text
+    assert check_dist(write_dist(tmp_path, data, {filename: b"x"})) == []
+
+
+def test_check_dist_unreadable_media_is_an_issue(tmp_path: pathlib.Path):
+    data = with_media(minimal(), "x.png", b"png")
+    dist = write_dist(tmp_path, data)
+    (dist / "en" / "media" / "x.png").mkdir()
+    issues = check_dist(dist)
+    assert any("x.png" in i.message for i in issues)
+
+
+def test_check_dist_unreadable_media_file(tmp_path: pathlib.Path):
+    data = with_media(minimal(), "x.png", b"png")
+    dist = write_dist(tmp_path, data, {"x.png": b"png"})
+    target = dist / "en" / "media" / "x.png"
+    target.chmod(0)
+    try:
+        issues = check_dist(dist)
+    finally:
+        target.chmod(0o644)
+    assert any("cannot read" in i.message for i in issues)
+
+
+@pytest.mark.parametrize("edition", ["", ".", "..", "a/b", "a\\b"])
+def test_edition_must_not_be_a_path(edition: str):
+    data = minimal()
+    cast(Deck, data["deck"])["edition"] = edition
+    assert "edition" in messages(data)
+
+
+def test_edition_must_match_directory(tmp_path: pathlib.Path):
+    dist = write_dist(tmp_path, minimal(), edition="fr")
+    issues = check_dist(dist)
+    assert [i.message for i in issues] == ["deck.edition 'en' does not match directory 'fr'"]
