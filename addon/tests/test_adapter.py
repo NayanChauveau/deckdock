@@ -1152,3 +1152,62 @@ def test_catalog_rolled_back_by_sync_still_updates_notes(
     assert plan.counts.updated == 1
     assert must_note(col, "hw-reversed-1")["Back"] == "minou"
     assert updated.installed_version == "3"
+
+
+def test_download_needs_no_collection_and_apply_no_network(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    installed, _ = run(col, server, sub, profile_dir)
+    blue = png_bytes(0, 0, 255)
+    deck = build_deck("2", image=blue)
+    deck["notes"].append(basic_note("hw-basic-2", "new", "note"))
+    server.publish(deck, blue)
+    files = sorted(p.name for p in Path(col.media.dir()).iterdir())
+
+    download = adapter.download_update(installed, transport=server)
+
+    assert download.deck["deck"]["version"] == "2"
+    assert [(e["filename"], data) for e, data in download.media] == [("h.png", blue)]
+    assert sorted(p.name for p in Path(col.media.dir()).iterdir()) == files
+    requests = len(server.requests)
+    updated, plan = adapter.apply_download(
+        col,
+        installed,
+        download,
+        profile_dir=profile_dir,
+        confirmed_full_sync=False,
+        undo_label=LABEL,
+    )
+    assert len(server.requests) == requests
+    assert plan.counts.created == 1
+    assert updated.installed_version == "2"
+    assert updated.etag == download.etag
+    local = updated.media["h.png"].local_name
+    assert (Path(col.media.dir()) / local).read_bytes() == blue
+
+
+def test_held_download_writes_no_media(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    installed, _ = run(col, server, sub, profile_dir)
+    blue = png_bytes(0, 0, 255)
+    deck = build_deck("2", image=blue)
+    deck["notetypes"][0]["fields"].append("Notes")
+    deck["notetypes"][0]["templates"][0]["back"] += "{{Notes}}"
+    deck["notes"][0]["fields"]["Notes"] = "a note"
+    server.publish(deck, blue)
+    download = adapter.download_update(installed, transport=server)
+    files = sorted(p.name for p in Path(col.media.dir()).iterdir())
+
+    returned, plan = adapter.apply_download(
+        col,
+        installed,
+        download,
+        profile_dir=profile_dir,
+        confirmed_full_sync=False,
+        undo_label=LABEL,
+    )
+
+    assert plan.needs_full_sync_confirmation
+    assert returned == installed
+    assert sorted(p.name for p in Path(col.media.dir()).iterdir()) == files

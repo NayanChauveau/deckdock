@@ -1,7 +1,9 @@
 """Anki adapter: read the local state of a subscription and execute an engine plan.
 
-This is the only module that writes into the user's collection. Media files are
-written first, outside the collection operation, and never overwrite a file.
+This is the only module that writes into the user's collection. deck.json and
+the media are downloaded first without the collection (`download_update`); the
+plan, the media files (never overwriting a file) and the collection changes
+follow in one collection operation (`apply_download`).
 Every collection change of one update (notetypes, decks, notes and the persisted
 subscription) is merged into a single undo entry. What could make a collection
 step fail is checked before the first write; if a step still fails, the steps
@@ -19,7 +21,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Iterable, Iterator, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import cast
 
@@ -41,6 +43,7 @@ from deckdock_addon.engine import (
     Plan,
     Skipped,
     make_plan,
+    media_to_download,
     preview,
     received_fingerprint,
     received_missing_plan,
@@ -820,48 +823,62 @@ def preview_plan(col: Collection, deck: CompiledDeck, sub: Subscription) -> Plan
     return _plan(col, prepared, sub, exclude)[1]
 
 
-def update_subscription(
-    col: Collection,
-    sub: Subscription,
-    *,
-    transport: Transport,
-    profile_dir: Path,
-    confirmed_full_sync: bool,
-    undo_label: str,
-) -> tuple[Subscription, Plan]:
-    """Fetch, plan and apply one subscription.
+@dataclass(frozen=True)
+class Download:
+    """deck.json and the media an update needs, downloaded without the collection."""
 
-    deck.json is fetched again (without ETag) so the plan is computed on what is
-    served now. Nothing is applied when the plan is blocked or needs an
-    unconfirmed full sync; the subscription is then returned unchanged. A media
-    download failure raises `SourceError` before the collection is touched.
+    deck: CompiledDeck
+    etag: str | None
+    media: tuple[tuple[MediaEntry, bytes], ...]
 
-    Media are downloaded and written first; the local state is then read again
-    and the plan recomputed right before applying, so an edit the user makes
-    during a long download is never overwritten. That plan still uses the
-    previous media table, which tells the engine which media changed; the
-    notes are written with the new local names.
+
+def download_update(sub: Subscription, *, transport: Transport) -> Download:
+    """Fetch deck.json (without ETag) and the media missing from `sub.media`.
+
+    Needs no collection, so it runs in the background while Anki stays usable.
+    Raises `SourceError` on any download failure; nothing is written.
     """
     fetched = fetch_deck(sub.base_url, etag=None, transport=transport)
     if fetched is None:
         raise SourceError("http_error", "unexpected 304 without ETag")
-    deck, exclude = _prepare(col, fetched.deck, sub)
+    media = tuple(
+        (entry, fetch_media(sub.base_url, entry, transport=transport))
+        for entry in media_to_download(fetched.deck, sub.media)
+    )
+    return Download(fetched.deck, fetched.etag, media)
+
+
+def apply_download(
+    col: Collection,
+    sub: Subscription,
+    download: Download,
+    *,
+    profile_dir: Path,
+    confirmed_full_sync: bool,
+    undo_label: str,
+) -> tuple[Subscription, Plan]:
+    """Plan on the current collection, write the downloaded media, then apply.
+
+    Uses no network. The plan is made here, on what the collection holds now,
+    so an edit the user made during the download is never overwritten. Nothing
+    is written (media included) when the plan is blocked or needs an
+    unconfirmed full sync; the subscription is then returned unchanged. The
+    plan uses the previous media table, which tells the engine which media
+    changed; the notes are written with the new local names.
+    """
+    deck, exclude = _prepare(col, download.deck, sub)
     base, plan = _plan(col, deck, sub, exclude)
     if _held(plan, confirmed_full_sync):
         return sub, plan
-
-    media = sub.media
-    if plan.media_to_download:
-        downloads = [
-            (entry, fetch_media(sub.base_url, entry, transport=transport))
-            for entry in plan.media_to_download
-        ]
-        media = write_media(col, downloads, sub.media)
-        # The download may have taken minutes: plan again on the current state.
-        base, plan = _plan(col, deck, sub, exclude)
-        if _held(plan, confirmed_full_sync):
-            return sub, plan
-    staged = replace(base, media=media, etag=fetched.etag)
+    data = {(e["filename"], e["sha256"]): d for e, d in download.media}
+    if any((m["filename"], m["sha256"]) not in data for m in plan.media_to_download):
+        raise ValueError("a media file the plan needs was not downloaded")
+    media = write_media(
+        col,
+        [(m, data[m["filename"], m["sha256"]]) for m in plan.media_to_download],
+        sub.media,
+    )
+    staged = replace(base, media=media, etag=download.etag)
     new_sub, extra = apply_plan(
         col,
         deck,
@@ -872,3 +889,27 @@ def update_subscription(
     )
     _write_versions(profile_dir, deck, new_sub)
     return new_sub, _with_extra_skipped(plan, extra)
+
+
+def update_subscription(
+    col: Collection,
+    sub: Subscription,
+    *,
+    transport: Transport,
+    profile_dir: Path,
+    confirmed_full_sync: bool,
+    undo_label: str,
+) -> tuple[Subscription, Plan]:
+    """Download (`download_update`), then plan and apply (`apply_download`).
+
+    The interface runs the two steps separately, the download without holding
+    the collection.
+    """
+    return apply_download(
+        col,
+        sub,
+        download_update(sub, transport=transport),
+        profile_dir=profile_dir,
+        confirmed_full_sync=confirmed_full_sync,
+        undo_label=undo_label,
+    )

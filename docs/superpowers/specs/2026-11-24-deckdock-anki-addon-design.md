@@ -152,6 +152,7 @@ Si l'utilisateur a modifié lui-même les templates d'un notetype géré par Dec
 ### 5.5 Appliquer (adaptateur Anki)
 
 - **Médias en premier, hors de l'opération sur la collection.**
+  - `deck.json` et les médias manquants sont téléchargés en arrière-plan, sans tenir la collection (`QueryOp` sans collection) : Anki reste utilisable pendant le téléchargement. Ensuite, une seule `CollectionOp` recalcule le plan sur la collection actuelle, écrit les médias (sauf si le plan est bloqué ou attend une confirmation) puis applique.
   - Le plugin **n'écrase jamais** un fichier du dossier média : un autre deck peut utiliser le même nom.
   - Chaque abonnement garde une **table des médias** (synchronisée, §5.6) : nom d'origine → (sha256 reçu, nom local dans Anki).
   - Seuls les médias absents de la table, ou dont le sha256 reçu a changé, sont téléchargés depuis `<base>/media/<nom encodé>`. Le sha256 et la taille sont vérifiés.

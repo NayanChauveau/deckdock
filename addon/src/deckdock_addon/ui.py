@@ -53,10 +53,12 @@ from aqt.utils import (
 from deckdock_addon import strings
 from deckdock_addon.adapter import (
     ApplyRefusedError,
+    Download,
     PartialApplyError,
+    apply_download,
     browser_search,
+    download_update,
     preview_plan,
-    update_subscription,
 )
 from deckdock_addon.engine import Plan, Skipped, summary_lines
 from deckdock_addon.sources import (
@@ -612,11 +614,11 @@ def _apply_next(
     profile_dir = _profile_dir()
     label = strings.undo_label(sub.name)
 
-    def op(col: Collection) -> _Applied:
-        new_sub, plan = update_subscription(
+    def apply(col: Collection, download: Download) -> _Applied:
+        new_sub, plan = apply_download(
             col,
             sub,
-            transport=transport,
+            download,
             profile_dir=profile_dir,
             confirmed_full_sync=confirmed,
             undo_label=label,
@@ -658,9 +660,20 @@ def _apply_next(
             _dialog.refresh()
         _warn_exception(exc)
 
-    CollectionOp(parent=_parent(), op=op).success(success).failure(
-        failure
-    ).run_in_background()
+    def downloaded(download: Download) -> None:
+        if _stale(epoch, collection):
+            return
+        CollectionOp(parent=_parent(), op=lambda col: apply(col, download)).success(
+            success
+        ).failure(failure).run_in_background()
+
+    # The network runs without the collection, so Anki stays usable meanwhile;
+    # the plan, the media files and the changes follow in one CollectionOp.
+    QueryOp(
+        parent=_parent(),
+        op=lambda _col: download_update(sub, transport=transport),
+        success=downloaded,
+    ).failure(failure).without_collection().with_progress().run_in_background()
 
 
 def _warn_exception(exc: Exception, parent: QWidget | None = None) -> None:
