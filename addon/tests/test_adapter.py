@@ -771,3 +771,100 @@ def test_noop_update_adds_no_undo_entry(
     assert again.etag != new_sub.etag  # the fake server sends a new ETag each time
     assert read_catalog(col).subscriptions == (again,)
     assert col.note_count() == 4
+
+
+def other_deck(version: str = "1") -> CompiledDeck:
+    """A different deck with the same display name, edition and structure."""
+    deck = build_deck(version)
+    deck["deck"]["id"] = "other-deck"
+    deck["notetypes"][0]["templates"][0]["front"] = "OTHER {{Front}}"
+    deck["notetypes"][0]["css"] = ".other {}"
+    deck["notes"] = [basic_note("other-1", "other", "deck")]
+    return deck
+
+
+def other_sub() -> Subscription:
+    return Subscription(
+        id="sub-2",
+        source_url=BASE_URL,
+        base_url=BASE_URL,
+        deck_id="other-deck",
+        edition="en",
+        name="Hello World",
+    )
+
+
+def test_two_decks_same_display_name_get_separate_notetypes(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    sub_a, _ = run(col, server, sub, profile_dir)
+    basic_a = col.models.get(NotetypeId(sub_a.notetype_ids["basic"]))
+    assert basic_a is not None
+    assert basic_a["deckdock"] == {
+        "deck_id": "hello-world",
+        "edition": "en",
+        "slug": "basic",
+    }
+    before = (basic_a["tmpls"][0]["qfmt"], basic_a["css"])
+
+    server_b = FakeServer()
+    server_b.publish(other_deck(), png_bytes())
+    sub_b, plan_b = run(col, server_b, other_sub(), profile_dir)
+    deck_b2 = other_deck("2")
+    deck_b2["notetypes"][0]["css"] = ".other { color: red; }"
+    server_b.publish(deck_b2)
+    sub_b, _ = run(col, server_b, sub_b, profile_dir)
+
+    assert plan_b.counts.created == 1
+    assert not set(sub_a.notetype_ids.values()) & set(sub_b.notetype_ids.values())
+    basic_a = col.models.get(NotetypeId(sub_a.notetype_ids["basic"]))
+    assert basic_a is not None
+    assert (basic_a["tmpls"][0]["qfmt"], basic_a["css"]) == before
+    assert must_note(col, "other-1").mid == sub_b.notetype_ids["basic"]
+    catalog_a = next(s for s in read_catalog(col).subscriptions if s.id == sub.id)
+    _, plan_a = run(col, server, catalog_a, profile_dir)
+    assert is_noop(plan_a)
+
+
+def test_user_notetype_with_same_name_not_adopted(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    mm = col.models
+    mine = mm.new("Hello World (en) · Basic")
+    for name in ("Front", "Back"):
+        mm.add_field(mine, mm.new_field(name))
+    template = mm.new_template("Card 1")
+    template["qfmt"] = "MY {{Front}}"
+    template["afmt"] = "MY {{Back}}"
+    mm.add_template(mine, template)
+    mine_id = int(mm.add(mine).id)
+
+    new_sub, _ = run(col, server, sub, profile_dir)
+
+    assert new_sub.notetype_ids["basic"] != mine_id
+    kept = mm.get(NotetypeId(mine_id))
+    assert kept is not None
+    assert kept["tmpls"][0]["qfmt"] == "MY {{Front}}"
+    assert must_note(col, "hw-basic-1").mid == new_sub.notetype_ids["basic"]
+
+
+def test_anki_id_mapped_by_other_subscription_not_reused(
+    col: Collection, server: FakeServer, sub: Subscription, profile_dir: Path
+) -> None:
+    deck_a = build_deck()
+    deck_a["notetypes"][0]["anki_id"] = 1_700_000_000_002
+    server.publish(deck_a)
+    sub_a, _ = run(col, server, sub, profile_dir)
+    assert sub_a.notetype_ids["basic"] == 1_700_000_000_002
+
+    deck_b = other_deck()
+    deck_b["notetypes"][0]["anki_id"] = 1_700_000_000_002
+    server_b = FakeServer()
+    server_b.publish(deck_b, png_bytes())
+    sub_b, _ = run(col, server_b, other_sub(), profile_dir)
+
+    assert sub_b.notetype_ids["basic"] != 1_700_000_000_002
+    basic_a = col.models.get(NotetypeId(1_700_000_000_002))
+    assert basic_a is not None
+    assert basic_a["tmpls"][0]["qfmt"] == "{{Front}}"
+    assert must_note(col, "other-1").mid == sub_b.notetype_ids["basic"]
