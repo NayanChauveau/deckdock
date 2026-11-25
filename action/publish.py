@@ -25,6 +25,21 @@ from pathlib import Path
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
+def esc(value):
+    """Escape a value for a GitHub workflow command line (anti-injection)."""
+    return str(value).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow redirects: they could forward the bearer token elsewhere."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def fail(message):
     print(f"::error::{message}")
     return 1
@@ -57,7 +72,7 @@ def post(url, token, data):
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/gzip"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with _OPENER.open(req, timeout=120) as resp:
             return resp.status, resp.read()
     except urllib.error.HTTPError as err:
         return err.code, err.read()
@@ -79,18 +94,20 @@ def publish_edition(base, token, edition, edition_dir):
 
     if body is None or status >= 400:
         errors = body.get("errors") if body else None
-        if errors:
-            for e in errors:
-                print(f"::error::{e.get('where', edition)}: {e.get('message', '')}")
+        entries = [e for e in errors if isinstance(e, dict)] if isinstance(errors, list) else []
+        if entries:
+            for e in entries:
+                print(f"::error::{esc(e.get('where', edition))}: {esc(e.get('message', ''))}")
         else:
             print(f"::error::{edition}: hub responded with HTTP {status}")
         return 1
 
-    for w in body.get("warnings") or []:
-        print(f"::warning::{edition}: {w}")
+    warnings = body.get("warnings")
+    for w in warnings if isinstance(warnings, list) else []:
+        print(f"::warning::{edition}: {esc(w)}")
     print(
-        f"{edition}: {body.get('status', '?')} "
-        f"(version {body.get('version', '?')}, {body.get('notes', '?')} notes)"
+        f"{edition}: {esc(body.get('status', '?'))} "
+        f"(version {esc(body.get('version', '?'))}, {esc(body.get('notes', '?'))} notes)"
     )
     return 0
 

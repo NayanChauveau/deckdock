@@ -23,6 +23,7 @@ class Hub:
             "warnings": [], "errors": [],
         }
         self.requests = []
+        self.redirect_to = None
         hub = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -34,6 +35,12 @@ class Hub:
                     "ctype": self.headers.get("Content-Type"),
                     "body": self.rfile.read(length),
                 })
+                if hub.redirect_to:
+                    self.send_response(302)
+                    self.send_header("Location", hub.redirect_to)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
                 data = json.dumps(hub.body).encode()
                 self.send_response(hub.status)
                 self.send_header("Content-Type", "application/json")
@@ -138,3 +145,61 @@ def test_publish_refuses_plain_http_for_remote_host(hub, dist):
     assert result.returncode != 0
     assert "https" in result.stdout
     assert hub.requests == []
+
+
+def test_publish_refuses_redirects(dist):
+    h = Hub()
+    h.redirect_to = "/elsewhere"
+    try:
+        result = run(dist, h.url)
+    finally:
+        h.close()
+    assert result.returncode != 0
+    assert "302" in result.stdout and "::error::" in result.stdout
+    assert "elsewhere" not in result.stdout
+    assert len(h.requests) == 1  # the redirect target was never requested
+    assert TOKEN not in result.stdout + result.stderr
+
+
+def test_publish_escapes_hub_messages(dist):
+    evil = "x\r\n::set-output name=pwn::1 100%"
+    h = Hub(422, {"errors": [{"where": evil, "message": evil}]})
+    h2 = Hub(200, {"status": "published", "version": evil, "notes": 1, "warnings": [evil]})
+    try:
+        bad = run(dist, h.url)
+        good = run(dist, h2.url)
+    finally:
+        h.close()
+        h2.close()
+    esc = "x%0D%0A::set-output name=pwn::1 100%25"
+    assert bad.stdout.splitlines()[0] == f"::error::{esc}: {esc}"
+    for out in (bad.stdout, good.stdout):
+        assert "\r" not in out
+        assert not any(l.lstrip().startswith("::set-output") for l in out.splitlines())
+    assert f"::warning::en: {esc}" in good.stdout
+
+
+@pytest.mark.parametrize("body", [
+    {"errors": "oops"},
+    {"errors": ["a string", 3]},
+    {"errors": None},
+    {"errors": {"where": "w"}},
+])
+def test_publish_tolerates_malformed_errors(dist, body):
+    h = Hub(422, body)
+    try:
+        result = run(dist, h.url)
+    finally:
+        h.close()
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    assert "::error::en: hub responded with HTTP 422" in result.stdout
+
+
+def test_publish_tolerates_malformed_warnings(dist):
+    h = Hub(200, {"status": "published", "version": "v", "notes": 1, "warnings": "careful"})
+    try:
+        result = run(dist, h.url)
+    finally:
+        h.close()
+    assert result.returncode == 0 and "Traceback" not in result.stderr

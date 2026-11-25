@@ -55,7 +55,7 @@ The hub answers with JSON `{"status": "published" | "already_published" | "pendi
 
 Editions are published in alphabetical order, and the action stops at the first edition that fails: the following ones would most likely fail for the same reason (bad token, wrong URL).
 
-The token is never printed. For the same reason, `hub-url` must be `https`; plain `http` is accepted only for `localhost` and `127.0.0.1` (local testing).
+The token is never printed. For the same reason, `hub-url` must be `https`; plain `http` is accepted only for `localhost`, `127.0.0.1` and `::1` (local testing). Redirects are never followed (a 3xx answer fails the step), so the token cannot be forwarded to another URL. Hub messages are escaped before being printed as workflow commands.
 
 ## Pinning
 
