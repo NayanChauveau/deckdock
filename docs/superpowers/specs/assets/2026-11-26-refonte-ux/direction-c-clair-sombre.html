@@ -1,0 +1,62 @@
+<h2>Direction C, en clair et en sombre</h2>
+<p class="subtitle">Même page, les deux thèmes. Le bouton ☀/☾ dans la barre bascule ; par défaut on suit le réglage du système. Dis si le sombre te va ou s'il doit être plus profond / plus coloré.</p>
+
+<style>
+  .dd { font-family: Inter, -apple-system, "Segoe UI", sans-serif; border-radius: 10px; overflow: hidden; }
+  .dd nav { display:flex; align-items:center; justify-content:space-between; padding:14px 22px; font-size:13px; gap:10px }
+  .dd nav .links { display:flex; gap:18px; opacity:.75 }
+  .dd .right { display:flex; gap:8px; align-items:center }
+  .dd .tog { width:28px; height:28px; border-radius:999px; display:flex; align-items:center; justify-content:center; font-size:13px }
+  .dd .hero { padding:38px 22px 30px; text-align:center }
+  .dd h1 { font-size:30px; line-height:1.1; margin:12px 0 10px; letter-spacing:-.02em; font-weight:700 }
+  .dd .lead { font-size:14px; max-width:420px; margin:0 auto 18px; line-height:1.5 }
+  .dd .btns { display:flex; gap:10px; justify-content:center }
+  .dd .btn { padding:9px 15px; border-radius:999px; font-size:13px; font-weight:600 }
+  .dd .pill { display:inline-block; font-size:11px; padding:4px 10px; border-radius:999px }
+  .dd .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; padding:0 22px 26px }
+  .dd .tile { border-radius:12px; padding:12px; font-size:12px; text-align:left }
+  .dd .tile b { display:block; font-size:13px; margin-bottom:4px }
+  .dd .meta { font-size:11px; opacity:.6; margin-top:8px }
+  .grad { -webkit-background-clip:text; background-clip:text; color:transparent }
+</style>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Clair</div>
+    <div class="mockup-body" style="padding:0">
+      <div class="dd" style="background:#fbfaff;color:#1b1a2e">
+        <nav><b style="color:#4f46e5">● DeckDock</b><span class="links"><span>Catalogue</span><span>Publier</span><span>Docs</span></span><span class="right"><span class="tog" style="border:1px solid #e4e2f3">☾</span><span class="btn" style="background:#4f46e5;color:#fff;padding:6px 11px">Connexion</span></span></nav>
+        <div class="hero" style="background:linear-gradient(180deg,#eef0ff,#fbfaff)">
+          <span class="pill" style="background:#e0e7ff;color:#4338ca">✨ Gratuit et open source</span>
+          <h1>Vos decks Anki,<br><span class="grad" style="background-image:linear-gradient(90deg,#4f46e5,#db2777)">toujours à jour.</span></h1>
+          <p class="lead" style="color:#5b5a72">Des decks maintenus comme du code, que la communauté reçoit en un clic dans Anki.</p>
+          <div class="btns"><span class="btn" style="background:#4f46e5;color:#fff">Parcourir les decks</span><span class="btn" style="background:#fff;border:1px solid #e4e2f3">Publier un deck →</span></div>
+        </div>
+        <div class="grid">
+          <div class="tile" style="background:#fff;box-shadow:0 4px 14px rgba(79,70,229,.08)"><b>🗺️ Géographie FR</b>Préfectures, fleuves…<div class="meta">fr · 1 240 cartes</div></div>
+          <div class="tile" style="background:#fff;box-shadow:0 4px 14px rgba(79,70,229,.08)"><b>🍷 WSET 3 Vin</b>Cépages et régions<div class="meta">fr/en · 860 cartes</div></div>
+          <div class="tile" style="background:#fff;box-shadow:0 4px 14px rgba(79,70,229,.08)"><b>🤿 Plongée N2</b>Physique, tables<div class="meta">fr · 310 cartes</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">Sombre</div>
+    <div class="mockup-body" style="padding:0">
+      <div class="dd" style="background:#0f0e1a;color:#ecebf7">
+        <nav><b style="color:#a5b4fc">● DeckDock</b><span class="links"><span>Catalogue</span><span>Publier</span><span>Docs</span></span><span class="right"><span class="tog" style="border:1px solid #2a2840">☀</span><span class="btn" style="background:#6366f1;color:#fff;padding:6px 11px">Connexion</span></span></nav>
+        <div class="hero" style="background:radial-gradient(520px 220px at 50% 0%, rgba(99,102,241,.28), transparent)">
+          <span class="pill" style="background:#1e1b4b;color:#c7d2fe">✨ Gratuit et open source</span>
+          <h1>Vos decks Anki,<br><span class="grad" style="background-image:linear-gradient(90deg,#818cf8,#f472b6)">toujours à jour.</span></h1>
+          <p class="lead" style="color:#a3a1bd">Des decks maintenus comme du code, que la communauté reçoit en un clic dans Anki.</p>
+          <div class="btns"><span class="btn" style="background:#6366f1;color:#fff">Parcourir les decks</span><span class="btn" style="background:#17162a;border:1px solid #2a2840">Publier un deck →</span></div>
+        </div>
+        <div class="grid">
+          <div class="tile" style="background:#17162a;border:1px solid #24223a"><b>🗺️ Géographie FR</b>Préfectures, fleuves…<div class="meta">fr · 1 240 cartes</div></div>
+          <div class="tile" style="background:#17162a;border:1px solid #24223a"><b>🍷 WSET 3 Vin</b>Cépages et régions<div class="meta">fr/en · 860 cartes</div></div>
+          <div class="tile" style="background:#17162a;border:1px solid #24223a"><b>🤿 Plongée N2</b>Physique, tables<div class="meta">fr · 310 cartes</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

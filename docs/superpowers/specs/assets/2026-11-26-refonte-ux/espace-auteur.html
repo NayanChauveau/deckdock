@@ -1,0 +1,79 @@
+<h2>Connexion et espace auteur</h2>
+<p class="subtitle">Les pages des auteurs. Dis ce qui manque ou ce qui est de trop.</p>
+
+<style>
+  .pg { font-family: Inter, -apple-system, "Segoe UI", sans-serif; background:#fbfaff; color:#1b1a2e; border-radius:10px; overflow:hidden; border:1px solid #e4e2f3; margin-bottom:22px }
+  .pg nav { display:flex; align-items:center; justify-content:space-between; padding:12px 24px; font-size:12px; border-bottom:1px solid #eeecf8 }
+  .pg nav .links { display:flex; gap:18px; color:#5b5a72 }
+  .pg .chip { border:1px solid #e4e2f3; border-radius:999px; padding:4px 9px; background:#fff; font-size:11px; display:inline-block }
+  .pg .btn { padding:8px 14px; border-radius:999px; font-size:12px; font-weight:600; display:inline-block }
+  .pg .primary { background:#4f46e5; color:#fff }
+  .pg .ghost { background:#fff; border:1px solid #e4e2f3 }
+  .pg h1 { font-size:24px; letter-spacing:-.02em; margin:0 0 6px }
+  .pg h4 { font-size:14px; margin:0 0 10px }
+  .pg p { color:#5b5a72; font-size:13px; line-height:1.55; margin:0 }
+  .pg .card { background:#fff; border-radius:14px; padding:18px; box-shadow:0 4px 14px rgba(79,70,229,.07) }
+  .pg .input { background:#fff; border:1px solid #e4e2f3; border-radius:12px; padding:10px 12px; font-size:13px; color:#8b89a6; margin:10px 0 }
+  .pg .side { display:grid; grid-template-columns:180px 1fr; min-height:300px }
+  .pg aside { border-right:1px solid #eeecf8; padding:20px 14px; font-size:13px }
+  .pg aside div { padding:7px 10px; border-radius:8px; margin-bottom:2px; color:#5b5a72 }
+  .pg aside .act { background:#eef0ff; color:#4338ca; font-weight:600 }
+  .pg main { padding:22px 26px }
+  .pg .row { display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid #f0eff8; font-size:13px }
+  .pg .ini { width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff }
+  .pg .st { font-size:11px; padding:3px 9px; border-radius:999px; font-weight:600 }
+  .pg .ok { background:#dcfce7; color:#166534 }
+  .pg .wait { background:#fef3c7; color:#92400e }
+  .pg .steps { display:flex; gap:10px; margin-top:12px }
+  .pg .stp { flex:1; border:1px dashed #d9d6f0; border-radius:12px; padding:10px; font-size:12px; color:#5b5a72 }
+  .pg .stp b { color:#1b1a2e; display:block; margin-bottom:2px }
+  .note { font-size:12px; color:#8b89a6; margin:-12px 0 20px; font-style:italic }
+</style>
+
+<div class="split">
+  <div class="pg" style="margin:0">
+    <nav><b style="color:#4f46e5">● DeckDock</b><span><span class="chip">FR · EN</span> <span class="chip">☾</span></span></nav>
+    <div style="padding:46px 30px;display:flex;justify-content:center;background:radial-gradient(400px 200px at 50% 0%,#eef0ff,transparent)">
+      <div class="card" style="width:300px;text-align:center">
+        <div class="ini" style="background:#4f46e5;margin:0 auto 12px">●</div>
+        <h1 style="font-size:20px">Connexion</h1>
+        <p>Recevez un lien par e-mail, sans mot de passe.</p>
+        <div class="input" style="text-align:left">vous@exemple.fr</div>
+        <span class="btn primary" style="display:block">Recevoir le lien</span>
+        <p style="font-size:11px;margin-top:12px">Pas encore de compte ? Il est créé à la première connexion.</p>
+      </div>
+    </div>
+  </div>
+  <div class="pg" style="margin:0">
+    <nav><b style="color:#4f46e5">● DeckDock</b><span><span class="chip">FR · EN</span> <span class="chip">☾</span> <span class="chip">demo ▾</span></span></nav>
+    <div class="side">
+      <aside><div class="act">📚 Mes decks</div><div>👤 Compte</div><div>📖 Guide auteur</div></aside>
+      <main>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h1>Mes decks</h1><span class="btn primary">+ Nouveau deck</span></div>
+        <div class="row"><div class="ini" style="background:#0ea5e9">🗺️</div><div style="flex:1"><b>Géographie FR</b><p style="font-size:11px">geo-fr · fr, en · v 2026-11-24</p></div><span class="st ok">Publié</span></div>
+        <div class="row"><div class="ini" style="background:#db2777">M</div><div style="flex:1"><b>my-deck</b><p style="font-size:11px">Aucune version reçue</p></div><span class="st wait">En attente</span></div>
+      </main>
+    </div>
+  </div>
+</div>
+<p class="note" style="margin-top:8px">Connexion : une carte centrée, simple. Espace auteur : barre latérale (Mes decks, Compte, Guide), liste des decks avec statut en pastille.</p>
+
+<div class="pg">
+  <nav><b style="color:#4f46e5">● DeckDock</b><span><span class="chip">FR · EN</span> <span class="chip">☾</span> <span class="chip">demo ▾</span></span></nav>
+  <div class="side">
+    <aside><div class="act">📚 Mes decks</div><div>👤 Compte</div><div>📖 Guide auteur</div></aside>
+    <main>
+      <p style="font-size:12px;margin-bottom:10px">Mes decks › my-deck</p>
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px"><div class="ini" style="background:#db2777;width:44px;height:44px">M</div><div><h1 style="margin:0">my-deck</h1><span class="st wait">En attente de validation</span></div></div>
+      <div class="card" style="margin-bottom:14px"><h4>Mettre en ligne ce deck</h4><p>Trois étapes depuis votre dépôt GitHub :</p>
+        <div class="steps">
+          <div class="stp"><b>1 · Jeton</b>Ajoutez le secret <code>DECKDOCK_TOKEN</code> au dépôt. <span style="color:#4f46e5">Générer un jeton</span></div>
+          <div class="stp"><b>2 · Adresse</b>Variable <code>DECKDOCK_HUB_URL</code> = https://deckdock…</div>
+          <div class="stp"><b>3 · Push</b>Un push sur main publie. Un admin valide la 1re version.</div>
+        </div>
+      </div>
+      <div class="card"><h4>Versions reçues</h4><p>Aucune pour l'instant. Elles apparaîtront ici après votre premier push.</p></div>
+    </main>
+  </div>
+</div>
+<p class="note">Détail d'un deck : un guide en 3 étapes tant que rien n'est publié, puis les versions, les éditions, le jeton (régénérer / révoquer) et le retrait.</p>

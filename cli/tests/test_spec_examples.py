@@ -40,7 +40,8 @@ def test_schema_is_a_valid_schema():
 
 def test_schema_rejects_structural_invalid_examples():
     # Structural rules live in the schema too; cross-object rules (duplicates, field
-    # matching, unknown notetype, total size) are only enforced by the checker.
+    # matching, unknown notetype, total size) and the single-emoji icon rule are only
+    # enforced by the checker.
     cross_object = {
         "duplicate-notetype-id",
         "duplicate-guid",
@@ -49,6 +50,7 @@ def test_schema_rejects_structural_invalid_examples():
         "note-unknown-field",
         "duplicate-media-filename",
         "media-total-too-large",
+        "deck-icon-two-emoji",
     }
     for p in INVALID:
         if p.stem not in cross_object:

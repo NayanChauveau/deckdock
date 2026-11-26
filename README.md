@@ -19,7 +19,7 @@ a verifier. It does not compile decks itself; to write one from YAML, start from
 Run the checker without installing it (needs [uv](https://docs.astral.sh/uv/)):
 
 ```sh
-uvx --from git+https://github.com/NayanChauveau/deckdock@v2#subdirectory=cli deckdock check dist
+uvx --from git+https://github.com/NayanChauveau/deckdock@v0#subdirectory=cli deckdock check dist
 ```
 
 | Command | What it does |
@@ -32,7 +32,7 @@ Errors are printed as `<path>: <JSON path>: <message>`; the exit code is 1 on er
 ### GitHub Action
 
 ```yaml
-- uses: NayanChauveau/deckdock/action@v2
+- uses: NayanChauveau/deckdock/action@v0
   with:
     path: dist
 ```

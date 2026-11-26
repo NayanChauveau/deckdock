@@ -10,7 +10,7 @@ from a repository created with [deckdock-template](https://github.com/NayanChauv
 - A deck repository that compiles to `dist/<edition>/deck.json` (and `dist/<edition>/media/`).
 - The hub's address (`https://...`, no trailing path). The hub operator gives it to you. Plain
   `http` is accepted only for `localhost`, for local testing.
-- The workflow's publish step uses the `publish` command of `NayanChauveau/deckdock/action@v2`. The
+- The workflow's publish step uses the `publish` command of `NayanChauveau/deckdock/action@v0`. The
   step needs a version of action v2 that includes the `publish` command; the hub operator
   confirms it is available.
 
@@ -72,6 +72,29 @@ Text, tags, notes, template text and CSS can change freely. See "Changing a publ
 - At most 30 publishes per deck every 10 minutes. If the hub answers 429 or 503, wait for the
   `Retry-After` delay and re-run the workflow; re-runs are safe.
 - Your token is checked before anything else, so a wrong or revoked token gives 401.
+
+## Publishing without GitHub Actions
+
+The Action is not required: any machine with the deckdock library (0.3.0 or later) can publish a
+compiled `dist/` folder.
+
+```sh
+export DECKDOCK_TOKEN=ddk_...        # the deck's token; never put it in a file you share
+deckdock publish dist --hub https://<hub>
+```
+
+- `--hub` defaults to the `DECKDOCK_HUB_URL` environment variable. It must be https (plain http
+  is accepted for `localhost` only), and redirects are never followed, so the token cannot leak.
+- Every `dist/<edition>/deck.json` is sent as its own archive; publishing stops at the first
+  edition the hub refuses, with the hub's errors on stderr and exit code 1.
+- `--max-bytes N` refuses an archive larger than N bytes before sending it (default 104857600,
+  the hub's default limit). `--json` prints the result as JSON instead of text.
+
+The same request can be made by hand: `POST <hub>/api/publish/<edition>` with the header
+`Authorization: Bearer <token>`, `Content-Type: application/gzip`, and as body a tar.gz of the
+edition folder (`deck.json` and `media/...` at the root of the archive). The hub answers JSON:
+`status`, `version`, `notes` and `warnings` on success, `errors` (each with `where` and
+`message`) otherwise.
 
 ## Testing and sharing a deck
 
