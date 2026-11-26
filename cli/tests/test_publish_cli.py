@@ -142,3 +142,41 @@ def test_token_never_printed(hub: Hub, dist: Path, capsys: pytest.CaptureFixture
     _ = main(["publish", str(dist), "--hub", "http://example.com"])
     out = capsys.readouterr()
     assert TOKEN not in out.out + out.err
+
+
+def _old_python() -> str | None:
+    """An interpreter older than 3.10 (as on some self-hosted runners), if this machine has one."""
+    import shutil
+    import subprocess
+
+    for name in ("python3.9", "python3.8", "/usr/bin/python3"):
+        path = shutil.which(name) or (name if Path(name).is_file() else None)
+        if not path:
+            continue
+        version = subprocess.run(
+            [path, "-c", "import sys; print(sys.version_info < (3, 10))"],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        if version == "True":
+            return path
+    return None
+
+
+@pytest.mark.skipif(_old_python() is None, reason="no Python older than 3.10 here")
+def test_publish_module_imports_on_python_older_than_3_10():
+    import subprocess
+
+    src = Path(__file__).resolve().parents[1] / "src"
+    result = subprocess.run(
+        [
+            cast(str, _old_python()),
+            "-c",
+            f"import sys; sys.path.insert(0, {str(src)!r}); import deckdock.publish",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
