@@ -15,7 +15,7 @@ jobs:
 
       # ... compile your deck into dist/<edition>/deck.json here ...
 
-      - uses: NayanChauveau/deckdock/action@v2
+      - uses: NayanChauveau/deckdock/action@v0
         with:
           path: dist
 ```
@@ -28,7 +28,7 @@ jobs:
 | `path` | `dist` | Compiled dist folder (contains `<edition>/deck.json`). |
 | `hub-url` | empty | Base URL of the DeckDock hub. Required for `publish` (no default). A trailing `/` is ignored. |
 | `max-bytes` | `104857600` | `publish` only: largest archive sent, in bytes. An edition whose archive is larger fails with an error before anything is sent. The default is the hub's default upload limit (100 MB). |
-| `deckdock-ref` | empty | Git ref of the DeckDock repository to install the CLI from. Empty means the ref the action was called with (`@v2`). `local` installs the CLI from the checkout containing this action (used by the monorepo CI). |
+| `deckdock-ref` | empty | Git ref of the DeckDock repository to install the CLI from. Empty means the ref the action was called with (`@v0`). `local` installs the CLI from the checkout containing this action (used by the monorepo CI). |
 
 ## What it runs
 
@@ -39,7 +39,7 @@ jobs:
 ## Publishing to a hub
 
 ```yaml
-      - uses: NayanChauveau/deckdock/action@v2
+      - uses: NayanChauveau/deckdock/action@v0
         with:
           command: publish
           path: dist
@@ -62,4 +62,4 @@ The token is never printed. For the same reason, `hub-url` must be `https`; plai
 
 ## Pinning
 
-Reference the action with a major tag (`@v2`) to get compatible updates, or with a full tag or commit SHA for fully reproducible builds. The CLI is installed from the same ref as the action, so the action and the CLI always match. If the ref cannot be determined and `deckdock-ref` is not set, the action fails rather than installing an unpinned version.
+Versions: every release has a fixed tag named after the library version (`v0.3.0`, `v0.3.1`...), never moved, and the moving tag `v0` points to the latest compatible release. Reference the action with `@v0` to get compatible updates, or with a fixed tag (`@v0.3.0`) or a commit SHA for fully reproducible builds. The CLI is installed from the same ref as the action, so the action and the CLI always match. If the ref cannot be determined and `deckdock-ref` is not set, the action fails rather than installing an unpinned version.

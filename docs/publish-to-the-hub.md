@@ -10,7 +10,7 @@ from a repository created with [deckdock-template](https://github.com/NayanChauv
 - A deck repository that compiles to `dist/<edition>/deck.json` (and `dist/<edition>/media/`).
 - The hub's address (`https://...`, no trailing path). The hub operator gives it to you. Plain
   `http` is accepted only for `localhost`, for local testing.
-- The workflow's publish step uses the `publish` command of `NayanChauveau/deckdock/action@v2`. The
+- The workflow's publish step uses the `publish` command of `NayanChauveau/deckdock/action@v0`. The
   step needs a version of action v2 that includes the `publish` command; the hub operator
   confirms it is available.
 
