@@ -37,7 +37,8 @@ Errors are printed as `<path>: <JSON path>: <message>`; the exit code is 1 on er
     path: dist
 ```
 
-See [`action/README.md`](action/README.md).
+See [`action/README.md`](action/README.md). To publish a deck to the DeckDock hub from CI, see
+[Publish to the DeckDock hub](docs/publish-to-the-hub.md).
 
 ### Writing a compiler
 

@@ -1,5 +1,5 @@
 name: DeckDock
-description: Check a compiled deckdock/1 dist with the DeckDock reference checker.
+description: Check a compiled deckdock/1 dist, or publish it to a DeckDock hub.
 author: NayanChauveau
 branding:
   icon: package
@@ -7,13 +7,21 @@ branding:
 
 inputs:
   command:
-    description: "DeckDock command to run. Only check is supported."
+    description: "DeckDock command to run: check (default) or publish."
     required: false
     default: check
   path:
-    description: "Compiled dist folder to check (contains <edition>/deck.json)."
+    description: "Compiled dist folder to check or publish (contains <edition>/deck.json)."
     required: false
     default: dist
+  hub-url:
+    description: "Base URL of the DeckDock hub. Required for publish (the DECKDOCK_TOKEN environment variable is required too)."
+    required: false
+    default: ""
+  max-bytes:
+    description: "publish only: largest archive sent to the hub, in bytes (default 104857600, the hub's default upload limit). A larger edition fails before anything is sent."
+    required: false
+    default: "104857600"
   deckdock-ref:
     description: "Git ref of NayanChauveau/deckdock to install the CLI from. Empty means the ref this action was called with. Use 'local' to install the CLI from the checkout next to this action (monorepo CI)."
     required: false
@@ -29,11 +37,18 @@ runs:
       env:
         DD_COMMAND: ${{ inputs.command }}
         DD_PATH: ${{ inputs.path }}
+        DD_HUB_URL: ${{ inputs.hub-url }}
+        DD_MAX_BYTES: ${{ inputs.max-bytes }}
         DD_INPUT_REF: ${{ inputs.deckdock-ref }}
         DD_ACTION_REF: ${{ github.action_ref }}
         DD_ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
+
+        if [ "$DD_COMMAND" = "publish" ]; then
+          DECKDOCK_HUB_URL="$DD_HUB_URL" DECKDOCK_PATH="$DD_PATH" DECKDOCK_MAX_BYTES="$DD_MAX_BYTES" python3 "$DD_ACTION_PATH/publish.py"
+          exit $?
+        fi
 
         REF="${DD_INPUT_REF:-$DD_ACTION_REF}"
         if [ -z "$REF" ]; then
@@ -50,7 +65,7 @@ runs:
         case "$DD_COMMAND" in
           check) ARGS=(check "$DD_PATH") ;;
           *)
-            echo "::error::Unknown command '$DD_COMMAND' (only 'check' is supported)."
+            echo "::error::Unknown command '$DD_COMMAND' (expected 'check' or 'publish')."
             exit 1
             ;;
         esac

@@ -75,7 +75,7 @@ class _Checker:
 
     def error(self, where: str, message: str) -> None:
         text = f"{where}: {message}" if where else message
-        self.issues.append(Issue(self.path, text))
+        self.issues.append(Issue(self.path, text, where=where))
 
     def mapping(self, value: object, where: str) -> dict[str, object] | None:
         if not isinstance(value, dict):
@@ -463,6 +463,7 @@ def _check_edition(edition_dir: Path, display: str, *, strict: bool) -> list[Iss
             Issue(
                 display,
                 f"deck.edition {edition!r} does not match directory {edition_dir.name!r}",
+                where="deck.edition",
             )
         )
 
@@ -471,7 +472,9 @@ def _check_edition(edition_dir: Path, display: str, *, strict: bool) -> list[Iss
         where = f"media[{index}]"
         file = media_dir / filename
         if not file.is_file():
-            issues.append(Issue(display, f"{where}: missing file 'media/{filename}'"))
+            issues.append(
+                Issue(display, f"{where}: missing file 'media/{filename}'", where=where)
+            )
             continue
         try:
             size = file.stat().st_size
@@ -480,17 +483,23 @@ def _check_edition(edition_dir: Path, display: str, *, strict: bool) -> list[Iss
                     Issue(
                         display,
                         f"{where}: size mismatch for '{filename}' (listed {entry['size']}, on disk {size})",
+                        where=where,
                     )
                 )
             elif _sha256_of(file) != entry["sha256"]:
                 issues.append(
-                    Issue(display, f"{where}: sha256 mismatch for '{filename}'")
+                    Issue(
+                        display,
+                        f"{where}: sha256 mismatch for '{filename}'",
+                        where=where,
+                    )
                 )
         except OSError as exc:
             issues.append(
                 Issue(
                     display,
                     f"{where}: cannot read 'media/{filename}': {exc.strerror or exc}",
+                    where=where,
                 )
             )
 
@@ -500,12 +509,20 @@ def _check_edition(edition_dir: Path, display: str, *, strict: bool) -> list[Iss
         except OSError as exc:
             on_disk = []
             issues.append(
-                Issue(display, f"media: cannot read directory: {exc.strerror or exc}")
+                Issue(
+                    display,
+                    f"media: cannot read directory: {exc.strerror or exc}",
+                    where="media",
+                )
             )
         for file in on_disk:
             if file.name not in listed:
                 issues.append(
-                    Issue(display, f"media/{file.name}: file not listed in 'media'")
+                    Issue(
+                        display,
+                        f"media/{file.name}: file not listed in 'media'",
+                        where=f"media/{file.name}",
+                    )
                 )
 
     for where, text in _texts(deck):
@@ -515,11 +532,16 @@ def _check_edition(edition_dir: Path, display: str, *, strict: bool) -> list[Iss
                     Issue(
                         display,
                         f"{where}: media references must be bare filenames ('{name}')",
+                        where=where,
                     )
                 )
             elif name not in listed:
                 issues.append(
-                    Issue(display, f"{where}: references unlisted media '{name}'")
+                    Issue(
+                        display,
+                        f"{where}: references unlisted media '{name}'",
+                        where=where,
+                    )
                 )
     return issues
 
