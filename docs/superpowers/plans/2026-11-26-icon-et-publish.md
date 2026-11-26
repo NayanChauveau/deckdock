@@ -149,6 +149,8 @@ def test_invalid_icon_rejected_by_validation(): ...           # "📚📚" → e
 
 ### Mise en circulation (après accord du propriétaire à chaque étape)
 
-1. Pousser `feat/icon-publish` de deckdock, fusionner dans `main` (PR ou fusion locale, au choix du propriétaire), puis déplacer le tag `v2` sur ce `main`.
-2. Seulement après : pousser et fusionner `feat/icon-homepage` du template (sa CI installe la bibliothèque depuis `v2`).
-3. Pousser et fusionner `feat/vendor-0.3` du hub (ou l'inclure dans la branche de la refonte).
+Ordre corrigé après la relecture finale : le hub actuel (bibliothèque 0.2.0, vérification stricte) refuse `icon`, et le template ne compile plus avec une bibliothèque 0.2.0 puisqu'il importe `deckdock.format.emoji`.
+
+1. Pousser `feat/icon-publish` de deckdock, fusionner dans `main`, puis déplacer le tag `v2` sur ce `main`.
+2. Pousser et fusionner `feat/vendor-0.3` du hub, puis le **déployer** (sans quoi un deck avec `icon` est refusé par le hub).
+3. Dans le template : `uv lock --upgrade-package deckdock` (le verrou passe au nouveau `v2`), commit, puis pousser et fusionner `feat/icon-homepage`.
