@@ -73,6 +73,29 @@ Text, tags, notes, template text and CSS can change freely. See "Changing a publ
   `Retry-After` delay and re-run the workflow; re-runs are safe.
 - Your token is checked before anything else, so a wrong or revoked token gives 401.
 
+## Publishing without GitHub Actions
+
+The Action is not required: any machine with the deckdock library (0.3.0 or later) can publish a
+compiled `dist/` folder.
+
+```sh
+export DECKDOCK_TOKEN=ddk_...        # the deck's token; never put it in a file you share
+deckdock publish dist --hub https://<hub>
+```
+
+- `--hub` defaults to the `DECKDOCK_HUB_URL` environment variable. It must be https (plain http
+  is accepted for `localhost` only), and redirects are never followed, so the token cannot leak.
+- Every `dist/<edition>/deck.json` is sent as its own archive; publishing stops at the first
+  edition the hub refuses, with the hub's errors on stderr and exit code 1.
+- `--max-bytes N` refuses an archive larger than N bytes before sending it (default 104857600,
+  the hub's default limit). `--json` prints the result as JSON instead of text.
+
+The same request can be made by hand: `POST <hub>/api/publish/<edition>` with the header
+`Authorization: Bearer <token>`, `Content-Type: application/gzip`, and as body a tar.gz of the
+edition folder (`deck.json` and `media/...` at the root of the archive). The hub answers JSON:
+`status`, `version`, `notes` and `warnings` on success, `errors` (each with `where` and
+`message`) otherwise.
+
 ## Testing and sharing a deck
 
 Once the first version is received, your deck's page in your account shows its address

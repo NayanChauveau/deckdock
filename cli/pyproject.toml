@@ -25,7 +25,7 @@ build-backend = "hatchling.build"
 packages = ["src/deckdock"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "../action/tests"]
 
 [tool.basedpyright]
 include = ["src", "tests"]
