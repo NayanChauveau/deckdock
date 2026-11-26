@@ -18,6 +18,10 @@ inputs:
     description: "Base URL of the DeckDock hub. Required for publish (the DECKDOCK_TOKEN environment variable is required too)."
     required: false
     default: ""
+  max-bytes:
+    description: "publish only: largest archive sent to the hub, in bytes (default 104857600, the hub's default upload limit). A larger edition fails before anything is sent."
+    required: false
+    default: "104857600"
   deckdock-ref:
     description: "Git ref of NayanChauveau/deckdock to install the CLI from. Empty means the ref this action was called with. Use 'local' to install the CLI from the checkout next to this action (monorepo CI)."
     required: false
@@ -34,6 +38,7 @@ runs:
         DD_COMMAND: ${{ inputs.command }}
         DD_PATH: ${{ inputs.path }}
         DD_HUB_URL: ${{ inputs.hub-url }}
+        DD_MAX_BYTES: ${{ inputs.max-bytes }}
         DD_INPUT_REF: ${{ inputs.deckdock-ref }}
         DD_ACTION_REF: ${{ github.action_ref }}
         DD_ACTION_PATH: ${{ github.action_path }}
@@ -41,7 +46,7 @@ runs:
         set -euo pipefail
 
         if [ "$DD_COMMAND" = "publish" ]; then
-          DECKDOCK_HUB_URL="$DD_HUB_URL" DECKDOCK_PATH="$DD_PATH" python3 "$DD_ACTION_PATH/publish.py"
+          DECKDOCK_HUB_URL="$DD_HUB_URL" DECKDOCK_PATH="$DD_PATH" DECKDOCK_MAX_BYTES="$DD_MAX_BYTES" python3 "$DD_ACTION_PATH/publish.py"
           exit $?
         fi
 
