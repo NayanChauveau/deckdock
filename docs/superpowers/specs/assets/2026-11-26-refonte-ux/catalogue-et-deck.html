@@ -1,0 +1,81 @@
+<h2>Catalogue et page d'un deck</h2>
+<p class="subtitle">Les deux pages que les apprenants verront le plus. Dis ce qui manque ou ce qui est de trop.</p>
+
+<style>
+  .pg { font-family: Inter, -apple-system, "Segoe UI", sans-serif; background:#fbfaff; color:#1b1a2e; border-radius:10px; overflow:hidden; border:1px solid #e4e2f3; margin-bottom:22px }
+  .pg nav { display:flex; align-items:center; justify-content:space-between; padding:12px 24px; font-size:12px; border-bottom:1px solid #eeecf8 }
+  .pg nav .links { display:flex; gap:18px; color:#5b5a72 }
+  .pg .chip { border:1px solid #e4e2f3; border-radius:999px; padding:4px 9px; background:#fff; font-size:11px; display:inline-block }
+  .pg .btn { padding:8px 14px; border-radius:999px; font-size:12px; font-weight:600; display:inline-block }
+  .pg .primary { background:#4f46e5; color:#fff }
+  .pg .ghost { background:#fff; border:1px solid #e4e2f3 }
+  .pg .wrap { padding:26px 24px }
+  .pg h1 { font-size:26px; letter-spacing:-.02em; margin:0 0 6px }
+  .pg h4 { font-size:14px; margin:0 0 10px }
+  .pg p { color:#5b5a72; font-size:13px; line-height:1.55; margin:0 }
+  .pg .search { display:flex; gap:8px; margin:16px 0 10px }
+  .pg .input { flex:1; background:#fff; border:1px solid #e4e2f3; border-radius:12px; padding:10px 12px; font-size:13px; color:#8b89a6 }
+  .pg .filters { display:flex; gap:6px; margin-bottom:16px }
+  .pg .on { background:#4f46e5; color:#fff; border-color:#4f46e5 }
+  .pg .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px }
+  .pg .box { background:#fff; border-radius:14px; padding:14px; box-shadow:0 4px 14px rgba(79,70,229,.07); font-size:12px }
+  .pg .box b { display:block; font-size:14px; margin-bottom:4px }
+  .pg .em { width:34px; height:34px; border-radius:10px; background:#eef0ff; display:flex; align-items:center; justify-content:center; font-size:18px; margin-bottom:10px }
+  .pg .meta { display:flex; gap:6px; margin-top:10px; flex-wrap:wrap }
+  .pg .mini { font-size:10.5px; background:#f3f2fb; border-radius:999px; padding:2px 8px; color:#5b5a72 }
+  .pg .layout { display:grid; grid-template-columns:1.6fr 1fr; gap:20px }
+  .pg .card { background:#fff; border-radius:14px; padding:16px; box-shadow:0 4px 14px rgba(79,70,229,.07); margin-bottom:14px }
+  .pg .url { display:flex; gap:6px; align-items:center; background:#f6f5fd; border:1px solid #e4e2f3; border-radius:10px; padding:8px 10px; font-family:ui-monospace,Menlo,monospace; font-size:11px; margin:8px 0 }
+  .pg .url span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .pg .tabs { display:flex; gap:4px; margin-bottom:10px }
+  .pg .flip { display:grid; grid-template-columns:1fr 1fr; gap:10px }
+  .pg .face { border:1px solid #eeecf8; border-radius:12px; padding:14px; min-height:70px; font-size:12px; background:#fff }
+  .pg .face small { display:block; color:#8b89a6; font-size:10px; text-transform:uppercase; letter-spacing:.06em; margin-bottom:6px }
+  .pg table { width:100%; font-size:12px; border-collapse:collapse }
+  .pg td { padding:6px 0; border-bottom:1px solid #f0eff8 }
+  .pg td:last-child { text-align:right; color:#5b5a72 }
+  .note { font-size:12px; color:#8b89a6; margin:-12px 0 20px; font-style:italic }
+</style>
+
+<div class="pg">
+  <nav><b style="color:#4f46e5">● DeckDock</b><span class="links"><span style="color:#1b1a2e;font-weight:600">Catalogue</span><span>Publier un deck</span><span>Documentation</span></span><span><span class="chip">FR · EN</span> <span class="chip">☾</span> <span class="btn primary" style="padding:5px 11px">Connexion</span></span></nav>
+  <div class="wrap">
+    <h1>Catalogue</h1>
+    <p>Des decks validés, maintenus par leurs auteurs. Collez l'adresse d'une édition dans le plugin pour la suivre.</p>
+    <div class="search"><div class="input">🔍 Rechercher un deck, un thème…</div></div>
+    <div class="filters"><span class="chip on">Toutes les langues</span><span class="chip">Français</span><span class="chip">English</span><span class="chip" style="margin-left:auto">Trier : mis à jour récemment ▾</span></div>
+    <div class="grid">
+      <div class="box"><div class="em">🗺️</div><b>Géographie FR</b>Préfectures, fleuves et reliefs de France.<div class="meta"><span class="mini">fr</span><span class="mini">1 240 cartes</span><span class="mini">il y a 2 j</span></div><p style="font-size:11px;margin-top:8px">par demo</p></div>
+      <div class="box"><div class="em">🍷</div><b>WSET 3 Vin</b>Cépages, régions et vinification.<div class="meta"><span class="mini">fr · en</span><span class="mini">860 cartes</span><span class="mini">il y a 5 j</span></div><p style="font-size:11px;margin-top:8px">par nayan</p></div>
+      <div class="box"><div class="em">🤿</div><b>Plongée N2</b>Physique, tables, réglementation.<div class="meta"><span class="mini">fr</span><span class="mini">310 cartes</span><span class="mini">il y a 3 sem</span></div><p style="font-size:11px;margin-top:8px">par nayan</p></div>
+    </div>
+  </div>
+</div>
+<p class="note">Catalogue : recherche en grand, filtres langue en pastilles, tri, cartes de deck cliquables entières. Pagination en bas (20 par page, comme aujourd'hui).</p>
+
+<div class="pg">
+  <nav><b style="color:#4f46e5">● DeckDock</b><span class="links"><span>Catalogue</span><span>Publier un deck</span><span>Documentation</span></span><span><span class="chip">FR · EN</span> <span class="chip">☾</span> <span class="btn primary" style="padding:5px 11px">Connexion</span></span></nav>
+  <div class="wrap">
+    <p style="font-size:12px;margin-bottom:14px">Catalogue › Géographie FR</p>
+    <div style="display:flex;gap:14px;align-items:center;margin-bottom:20px"><div class="em" style="width:52px;height:52px;font-size:26px;margin:0">🗺️</div><div><h1 style="margin:0">Géographie FR</h1><p>par <b style="color:#1b1a2e">demo</b> · CC0-1.0 · mis à jour il y a 2 jours</p></div></div>
+    <div class="layout">
+      <div>
+        <div class="card"><h4>Aperçu des cartes</h4>
+          <div class="tabs"><span class="chip on">Carte 1</span><span class="chip">2</span><span class="chip">3</span><span class="chip" style="margin-left:auto">↻ Retourner</span></div>
+          <div class="flip"><div class="face"><small>Recto</small>Quelle est la préfecture de l'Ain ?</div><div class="face"><small>Verso</small>Bourg-en-Bresse</div></div>
+        </div>
+        <div class="card"><h4>Description</h4><p>Préfectures, fleuves et reliefs de France métropolitaine. Corrections bienvenues par pull request sur le dépôt.</p></div>
+        <div class="card"><h4>Historique</h4><table><tr><td>2026-11-24 · v+a1b2c3d</td><td>1 240 notes</td></tr><tr><td>2026-11-10 · v+9f8e7d6</td><td>1 228 notes</td></tr></table></div>
+      </div>
+      <div>
+        <div class="card" style="border:1px solid #c7d2fe"><h4>Suivre ce deck dans Anki</h4>
+          <div class="tabs"><span class="chip on">Français</span><span class="chip">English</span></div>
+          <div class="url"><span>https://deckdock…/d/demo/geo-fr/fr/</span><span class="btn primary" style="padding:4px 10px;font-size:11px">Copier</span></div>
+          <p style="font-size:11.5px">Dans Anki : Outils › DeckDock › Ajouter, puis collez l'adresse. <a style="color:#4f46e5">Installer le plugin →</a></p>
+        </div>
+        <div class="card"><h4>En bref</h4><table><tr><td>Cartes</td><td>1 240</td></tr><tr><td>Langues</td><td>fr</td></tr><tr><td>Licence</td><td>CC0-1.0</td></tr><tr><td>Source</td><td style="color:#4f46e5">GitHub ↗</td></tr></table></div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="note">Page d'un deck : le bloc « Suivre dans Anki » est l'action principale, à droite, avec un onglet par édition ; aperçu en carrousel (une carte à la fois, recto/verso côte à côte).</p>
