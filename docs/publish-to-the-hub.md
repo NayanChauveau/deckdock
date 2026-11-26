@@ -62,8 +62,13 @@ Text, tags, notes, template text and CSS can change freely. See "Changing a publ
 
 ### Limits
 
-- 100 MB per upload (compressed). Decompressed: at most 500 MiB and 20 000 files; `deck.json` at most
-  50 MiB. The archive contains only `deck.json` and `media/<file>`.
+- 100 MB per upload (compressed), sent within 120 seconds (408 otherwise). Decompressed: at most
+  500 MiB and 20 000 files; `deck.json` at most 16 MiB. The archive contains only `deck.json` and
+  `media/<file>`. The Action refuses an archive larger than its `max-bytes` input (100 MB by default)
+  before sending it.
+- Per author: at most 10 decks, and 2 GiB stored (the files of every version, each version counted
+  with all its files). A deck awaiting approval receives at most 3 versions until it is approved.
+  Past a quota the hub answers 403.
 - At most 30 publishes per deck every 10 minutes. If the hub answers 429 or 503, wait for the
   `Retry-After` delay and re-run the workflow; re-runs are safe.
 - Your token is checked before anything else, so a wrong or revoked token gives 401.

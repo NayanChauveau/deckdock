@@ -203,3 +203,32 @@ def test_publish_tolerates_malformed_warnings(dist):
     finally:
         h.close()
     assert result.returncode == 0 and "Traceback" not in result.stderr
+
+
+def test_publish_refuses_an_archive_over_max_bytes(hub, dist):
+    (dist / "en" / "media" / "big.bin").write_bytes(__import__("os").urandom(4096))
+    env_extra = {"DECKDOCK_MAX_BYTES": "1000"}
+    env = {"DECKDOCK_PATH": str(dist), "DECKDOCK_HUB_URL": hub.url, "DECKDOCK_TOKEN": TOKEN, **env_extra}
+    result = subprocess.run([sys.executable, str(PUBLISH)], env=env, capture_output=True, text=True)
+    assert result.returncode != 0
+    errors = [l for l in result.stdout.splitlines() if l.startswith("::error::")]
+    assert len(errors) == 1
+    assert errors[0].startswith("::error::en: the archive is ")
+    assert "max-bytes (1000)" in errors[0]
+    assert hub.requests == []  # nothing sent
+
+
+def test_publish_max_bytes_defaults_to_100_mb_and_is_validated(hub, dist):
+    sys.path.insert(0, str(PUBLISH.parent))
+    try:
+        import publish
+    finally:
+        sys.path.pop(0)
+    assert publish.DEFAULT_MAX_BYTES == 104857600
+    assert publish.POST_TIMEOUT == 330
+    assert run(dist, hub.url).returncode == 0  # default limit: small archives pass
+    for bad in ("abc", "0", "-5"):
+        env = {"DECKDOCK_PATH": str(dist), "DECKDOCK_HUB_URL": hub.url, "DECKDOCK_TOKEN": TOKEN, "DECKDOCK_MAX_BYTES": bad}
+        result = subprocess.run([sys.executable, str(PUBLISH)], env=env, capture_output=True, text=True)
+        assert result.returncode != 0
+        assert "::error::max-bytes" in result.stdout

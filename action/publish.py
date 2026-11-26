@@ -5,6 +5,8 @@ Configuration comes from the environment (set by action.yml):
   DECKDOCK_HUB_URL  hub base URL (https, or http on localhost)
   DECKDOCK_TOKEN    per-deck bearer token (never printed)
   DECKDOCK_PATH     compiled dist folder (default: dist)
+  DECKDOCK_MAX_BYTES  largest archive sent, in bytes (default: 104857600, the
+                    hub's default upload limit); a larger one fails before sending
 
 For each <path>/<edition>/ containing deck.json, the edition directory is
 archived as tar.gz (members relative to the edition directory: deck.json,
@@ -23,6 +25,13 @@ import urllib.request
 from pathlib import Path
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+# The hub's default upload limit (100 MB): a larger archive is refused before it is sent.
+DEFAULT_MAX_BYTES = 104_857_600
+
+# Seconds to wait for the hub's answer. The hub may queue an upload for a publish slot (30 s), then
+# run the checker (up to 120 s) and the notetype comparison (up to 120 s): 330 s covers the worst case.
+POST_TIMEOUT = 330
 
 
 def esc(value):
@@ -72,16 +81,23 @@ def post(url, token, data):
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/gzip"},
     )
     try:
-        with _OPENER.open(req, timeout=120) as resp:
+        with _OPENER.open(req, timeout=POST_TIMEOUT) as resp:
             return resp.status, resp.read()
     except urllib.error.HTTPError as err:
         return err.code, err.read()
 
 
-def publish_edition(base, token, edition, edition_dir):
+def publish_edition(base, token, edition, edition_dir, max_bytes=DEFAULT_MAX_BYTES):
     url = f"{base}/api/publish/{urllib.parse.quote(edition)}"
+    archive = build_archive(edition_dir)
+    if len(archive) > max_bytes:
+        return fail(
+            f"{esc(edition)}: the archive is {len(archive)} bytes, more than max-bytes ({max_bytes}); "
+            "the hub would refuse it. Make the deck smaller (media files), or raise max-bytes "
+            "if your hub accepts more."
+        )
     try:
-        status, raw = post(url, token, build_archive(edition_dir))
+        status, raw = post(url, token, archive)
     except (urllib.error.URLError, OSError) as err:
         reason = getattr(err, "reason", err)
         return fail(f"{edition}: could not reach the hub ({type(reason).__name__}).")
@@ -125,6 +141,13 @@ def main(env=None):
     problem = check_hub_url(hub_url)
     if problem:
         return fail(problem)
+    raw_max = (env.get("DECKDOCK_MAX_BYTES") or "").strip()
+    if not raw_max:
+        max_bytes = DEFAULT_MAX_BYTES
+    elif raw_max.isdigit() and int(raw_max) > 0:
+        max_bytes = int(raw_max)
+    else:
+        return fail(f"max-bytes must be a positive number of bytes, not {esc(raw_max)!r}.")
 
     editions = sorted(p for p in dist.iterdir() if (p / "deck.json").is_file()) if dist.is_dir() else []
     if not editions:
@@ -132,7 +155,7 @@ def main(env=None):
 
     base = hub_url.rstrip("/")
     for edition_dir in editions:
-        if publish_edition(base, token, edition_dir.name, edition_dir):
+        if publish_edition(base, token, edition_dir.name, edition_dir, max_bytes):
             return 1
     return 0
 
