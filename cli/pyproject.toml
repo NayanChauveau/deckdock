@@ -1,6 +1,6 @@
 [project]
 name = "deckdock"
-version = "0.2.0"
+version = "0.3.0"
 description = "Reference checker and Python library for the deckdock/1 Anki deck format"
 license = "MIT"
 requires-python = ">=3.13"

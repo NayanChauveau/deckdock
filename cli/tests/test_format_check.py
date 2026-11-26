@@ -500,3 +500,25 @@ def test_typed_compiled_deck_passes_check():
         "media": [],
     }
     assert check_deck(deck) == []
+
+
+def test_icon_is_optional_and_accepted_strict():
+    assert check_deck(minimal()) == []
+    data = minimal()
+    cast(Deck, data["deck"])["icon"] = "📚"
+    assert check_deck(data) == []
+
+
+@pytest.mark.parametrize("strict", [True, False])
+def test_invalid_icon_refused_in_both_modes(strict: bool):
+    data = minimal()
+    cast(Deck, data["deck"])["icon"] = "📚📚"
+    issues = check_deck(data, strict=strict)
+    assert [issue.where for issue in issues] == ["deck.icon"]
+    assert "single emoji" in issues[0].message
+
+
+def test_icon_must_be_a_string():
+    data = minimal()
+    cast(Deck, data["deck"])["icon"] = 5
+    assert [issue.where for issue in check_deck(data)] == ["deck.icon"]
